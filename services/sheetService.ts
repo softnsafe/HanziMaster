@@ -1,11 +1,13 @@
 import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary } from '../types';
 
 const STORAGE_KEY = 'hanzi_master_backend_url';
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbyqZ-sXRyAv17XHFNpthXBqy4dKjvyWlxYof5MDKvT4calWsyC9P8HXpQlnyGOv-gs1Ow/exec';
 
 export const sheetService = {
   
   getUrl(): string {
-    return localStorage.getItem(STORAGE_KEY) || "";
+    // Returns local storage override if present, otherwise the hardcoded production URL
+    return localStorage.getItem(STORAGE_KEY) || DEFAULT_URL;
   },
 
   saveUrl(url: string) {

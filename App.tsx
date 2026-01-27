@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [practiceRecords, setPracticeRecords] = useState<PracticeRecord[]>([]);
   
   // Login State
-  const [userRole, setUserRole] = useState<'student' | 'teacher'>('student');
   const [scriptPref, setScriptPref] = useState<ScriptType>('Simplified');
   const [loginError, setLoginError] = useState('');
   
@@ -29,7 +28,8 @@ const App: React.FC = () => {
   // UI State
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
-  const [isConfigured, setIsConfigured] = useState(false);
+  // Initialize with existence check so it starts as "Online" if hardcoded URL exists
+  const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl());
 
   // Check configuration on load
   useEffect(() => {
@@ -50,15 +50,6 @@ const App: React.FC = () => {
     } else {
         setIsConfigured(!!sheetService.getUrl());
     }
-
-    // 2. If no URL found in storage or params, prompt setup
-    const currentUrl = sheetService.getUrl(); // Check storage again
-    if (!currentUrl && !backendParam) {
-        const timer = setTimeout(() => setShowSetup(true), 500);
-        return () => clearTimeout(timer);
-    } else if (currentUrl) {
-        setIsConfigured(true);
-    }
   }, []);
 
   // --- Handlers ---
@@ -68,43 +59,39 @@ const App: React.FC = () => {
     setLoginError('');
     const form = e.target as HTMLFormElement;
     
-    if (userRole === 'teacher') {
-        const passwordInput = form.elements.namedItem('password') as HTMLInputElement;
-        // Simple Teacher Gate (In production, use real auth)
-        if (passwordInput.value === '8888') {
-             setCurrentView(AppView.TEACHER_DASHBOARD);
-        } else {
-            alert("Incorrect Teacher PIN (Try 8888)");
-        }
-        return;
-    }
-
-    // Student Login
     const nameInput = form.elements.namedItem('name') as HTMLInputElement;
     const passInput = form.elements.namedItem('password') as HTMLInputElement;
+    
+    const nameVal = nameInput.value.trim();
+    const passVal = passInput.value.trim();
 
-    if (nameInput.value && passInput.value) {
+    if (nameVal && passVal) {
       setIsLoggingIn(true);
       const tempStudent: Student = {
-        id: Date.now().toString(), // Temp ID, will be replaced by backend
-        name: nameInput.value,
-        password: passInput.value,
+        id: Date.now().toString(),
+        name: nameVal,
+        password: passVal,
         joinedAt: new Date().toISOString(),
         scriptPreference: scriptPref
       };
       
-      // Attempt login
       const result = await sheetService.loginStudent(tempStudent);
 
       if (result.success && result.student) {
-         setStudent(result.student); // Use the student object returned from backend (with correct ID)
-         const history = await sheetService.getStudentHistory(result.student.name);
-         setPracticeRecords(history);
-         setCurrentView(AppView.DASHBOARD);
+         setStudent(result.student); 
+         
+         // Teacher Detection Logic (Case Insensitive)
+         const lowerName = result.student.name.toLowerCase();
+         if (lowerName === 'ms. huang' || lowerName === 'teacher') {
+            setCurrentView(AppView.TEACHER_DASHBOARD);
+         } else {
+            const history = await sheetService.getStudentHistory(result.student.name);
+            setPracticeRecords(history);
+            setCurrentView(AppView.DASHBOARD);
+         }
       } else {
          if (result.message === "Backend not configured") {
-             setLoginError("Please connect the Google Sheet backend first.");
-             setShowSetup(true);
+             setLoginError("App is Offline. Please contact your teacher.");
          } else {
              setLoginError(result.message || 'Login failed');
          }
@@ -118,28 +105,16 @@ const App: React.FC = () => {
     setStudent(null);
     setCurrentView(AppView.LOGIN);
     setPracticeRecords([]);
-    setUserRole('student');
     setLoginError('');
-  };
-
-  const updateStatus = async (status: AssignmentStatus) => {
-     if (student && currentLesson) {
-         await sheetService.updateAssignmentStatus(student.id, currentLesson.id, status);
-     }
   };
 
   const handleStartPractice = async (lesson: Lesson) => {
     setCurrentLesson(lesson);
-    
-    // Convert chars if needed
     const converted = lesson.characters.map(c => student ? convertCharacter(c, student.scriptPreference) : c);
-    
     setPracticeQueue(converted);
     setQueueIndex(0);
     setPracticeCount(0);
     setCurrentView(AppView.PRACTICE);
-
-    // Optimistically update status to IN_PROGRESS (if not already completed)
     if (student) {
        await sheetService.updateAssignmentStatus(student.id, lesson.id, 'IN_PROGRESS');
     }
@@ -155,23 +130,21 @@ const App: React.FC = () => {
     setPracticeCount(nextCount);
 
     if (nextCount >= 3) {
-        // Current character complete! Save record.
         if (!student) return;
 
         const currentTarget = practiceQueue[queueIndex];
         const newRecord: PracticeRecord = {
             id: Date.now().toString(),
             character: currentTarget,
-            score: 100, // Full marks for completing drill
-            feedback: "Completed 3 practice drills successfully.",
+            score: 100,
+            feedback: "Great job! Practice completed.",
             timestamp: Date.now(),
-            imageUrl: "" // No image saved for quiz mode
+            imageUrl: "" 
         };
 
         setPracticeRecords(prev => [...prev, newRecord]);
         await sheetService.savePracticeRecord(student.name, newRecord);
 
-        // Check if this was the last character of the lesson
         if (queueIndex >= practiceQueue.length - 1 && currentLesson) {
            await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'COMPLETED');
         }
@@ -181,127 +154,105 @@ const App: React.FC = () => {
   // --- Views ---
 
   const renderLogin = () => (
-    <div className="min-h-screen flex items-center justify-center bg-stone-100 p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-stone-200 relative">
-        {/* Gear Icon for Setup - Hidden (Grayed out) if configured */}
-        <button 
-            onClick={() => setShowSetup(true)}
-            className={`absolute top-4 right-4 p-2 transition-all duration-300 rounded-full ${
-                !isConfigured 
-                ? 'opacity-100 text-red-500 animate-pulse hover:bg-red-50' 
-                : 'opacity-0 hover:opacity-40 text-stone-400 hover:bg-stone-100' 
-            }`}
-            title="Configure Backend"
-        >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            {!isConfigured && (
-                <span className="absolute top-0 right-0 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                </span>
-            )}
-        </button>
-
-        <div className="text-center mb-8">
-            <h1 className="text-4xl font-serif-sc font-bold text-red-800 mb-2">翰墨 AI</h1>
-            <p className="text-stone-500 font-medium">HanziMaster • Handwriting Practice</p>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-violet-600 via-fuchsia-500 to-orange-400 relative overflow-hidden">
+        {/* Background Decorative Elements - Vibrant Mode */}
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+            <div className="absolute top-10 left-10 w-48 h-48 bg-yellow-300 rounded-full mix-blend-screen filter blur-3xl animate-float opacity-60"></div>
+            <div className="absolute top-20 right-10 w-64 h-64 bg-cyan-400 rounded-full mix-blend-screen filter blur-3xl animate-float opacity-50" style={{animationDelay: '1s'}}></div>
+            <div className="absolute -bottom-10 left-1/3 w-80 h-80 bg-pink-500 rounded-full mix-blend-overlay filter blur-[100px] animate-pulse opacity-60"></div>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          {userRole === 'student' ? (
-              <>
-                <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Student Name</label>
-                    <input 
-                    name="name" 
-                    type="text" 
-                    required
-                    placeholder="Enter your name"
-                    className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
-                    />
-                </div>
+      {/* Status Indicator & Support Link (Top Right) */}
+      <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3">
+          <div 
+            className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm shadow-lg transition-all border-2 select-none ${
+                isConfigured 
+                ? 'bg-white/90 text-emerald-700 border-emerald-400' 
+                : 'bg-white/90 text-rose-700 border-rose-400'
+            }`}
+          >
+              <div className={`w-2.5 h-2.5 rounded-full ${isConfigured ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              {isConfigured ? 'Online' : 'Offline'}
+          </div>
+          
+          <a 
+            href="https://docs.google.com/forms/d/1lM4Y-EAodS9xg1uWQ4kJyV4p4h2Bmu_6HoLzH2ehsVM/edit" 
+            target="_blank" 
+            rel="noreferrer" 
+            className="text-white/90 text-xs font-bold hover:text-white drop-shadow-md underline decoration-2 underline-offset-2 transition-colors flex items-center gap-1 group"
+          >
+             <span>Contact Support</span>
+             <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+          </a>
+      </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
-                    <input 
-                    name="password" 
-                    type="password" 
-                    required
-                    placeholder="Create or enter password"
-                    className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
-                    />
-                </div>
-                
-                {/* Script Preference */}
-                <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-2">Preferred Script</label>
-                    <div className="grid grid-cols-2 gap-3">
-                         <div 
-                            onClick={() => setScriptPref('Simplified')}
-                            className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${scriptPref === 'Simplified' ? 'border-red-500 bg-red-50 ring-1 ring-red-500' : 'border-stone-200 hover:border-stone-300'}`}
-                         >
-                            <div className="text-xl font-serif-sc font-bold text-stone-800 mb-1">汉字</div>
-                            <div className="text-xs text-stone-500">Simplified</div>
-                         </div>
-                         <div 
-                            onClick={() => setScriptPref('Traditional')}
-                            className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${scriptPref === 'Traditional' ? 'border-red-500 bg-red-50 ring-1 ring-red-500' : 'border-stone-200 hover:border-stone-300'}`}
-                         >
-                            <div className="text-xl font-serif-sc font-bold text-stone-800 mb-1">漢字</div>
-                            <div className="text-xs text-stone-500">Traditional</div>
-                         </div>
-                    </div>
-                </div>
-              </>
-          ) : (
-             <div>
-                <div className="bg-red-50 border border-red-100 p-3 rounded-lg mb-4 text-center">
-                    <p className="text-red-800 font-bold text-sm">Teacher Access Only</p>
-                </div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Teacher PIN</label>
+      <div className="bg-white/95 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl max-w-md w-full border-4 border-white/40 relative z-10">
+        
+        <div className="text-center mb-10 mt-4">
+            <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-fuchsia-600 mb-2 drop-shadow-sm">
+                佛光山中文學校
+            </h1>
+            <p className="text-slate-500 font-bold text-lg tracking-wide uppercase">Homework Practice</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-5">
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Name</label>
+                <input 
+                name="name" 
+                type="text" 
+                required
+                placeholder="Your name"
+                className="w-full px-5 py-3 rounded-2xl bg-slate-50 border-2 border-slate-200 focus:border-fuchsia-400 focus:ring-4 focus:ring-fuchsia-100 outline-none transition-all font-bold text-slate-700 placeholder-slate-300"
+                />
+            </div>
+
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Password</label>
                 <input 
                 name="password" 
                 type="password" 
                 required
-                maxLength={4}
-                autoFocus
-                placeholder="PIN"
-                className="w-full px-4 py-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all tracking-widest text-center text-2xl"
+                placeholder="Your password"
+                className="w-full px-5 py-3 rounded-2xl bg-slate-50 border-2 border-slate-200 focus:border-fuchsia-400 focus:ring-4 focus:ring-fuchsia-100 outline-none transition-all font-bold text-slate-700 placeholder-slate-300"
                 />
             </div>
-          )}
+            
+            {/* Script Preference */}
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Learning Script</label>
+                <div className="grid grid-cols-2 gap-3">
+                        <div 
+                        onClick={() => setScriptPref('Simplified')}
+                        className={`cursor-pointer border-2 rounded-2xl p-3 text-center transition-all ${scriptPref === 'Simplified' ? 'border-fuchsia-500 bg-fuchsia-50 text-fuchsia-700 shadow-md shadow-fuchsia-100' : 'border-slate-100 bg-slate-50 hover:bg-white text-slate-400'}`}
+                        >
+                        <div className="text-2xl font-serif-sc font-bold mb-1">汉字</div>
+                        <div className="text-xs font-bold">Simplified</div>
+                        </div>
+                        <div 
+                        onClick={() => setScriptPref('Traditional')}
+                        className={`cursor-pointer border-2 rounded-2xl p-3 text-center transition-all ${scriptPref === 'Traditional' ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-md shadow-violet-100' : 'border-slate-100 bg-slate-50 hover:bg-white text-slate-400'}`}
+                        >
+                        <div className="text-2xl font-serif-sc font-bold mb-1">漢字</div>
+                        <div className="text-xs font-bold">Traditional</div>
+                        </div>
+                </div>
+            </div>
 
           {loginError && (
-              <div className="text-red-600 text-sm text-center bg-red-50 p-2 rounded flex flex-col gap-1">
-                  <span>{loginError}</span>
-                  {loginError.includes('configure') && (
-                      <span className="text-xs underline cursor-pointer" onClick={() => setShowSetup(true)}>Click here to setup</span>
-                  )}
+              <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border-2 border-rose-100 font-bold animate-bounce">
+                  {loginError}
               </div>
           )}
 
-          <Button type="submit" className="w-full justify-center text-lg py-3" isLoading={isLoggingIn}>
-            {userRole === 'student' ? 'Login / Register' : 'Enter Portal'}
+          <Button type="submit" className="w-full text-lg shadow-xl shadow-indigo-300 bg-gradient-to-r from-violet-600 to-indigo-600 border-none hover:from-violet-700 hover:to-indigo-700 text-white transform hover:scale-[1.02]" isLoading={isLoggingIn}>
+            Enter Portal
           </Button>
           
-          {userRole === 'student' && (
-             <p className="text-xs text-center text-stone-400 mt-4">
-               Please enter the name and password provided by your teacher.
-             </p>
-          )}
-
-          {/* Subtle Switch Link */}
-          <div className="mt-8 pt-4 border-t border-stone-100 flex justify-center">
-            <button 
-                type="button"
-                className="text-xs text-stone-300 hover:text-red-600 transition-colors"
-                onClick={() => setUserRole(userRole === 'student' ? 'teacher' : 'student')}
-            >
-                {userRole === 'student' ? 'Teacher Access' : 'Back to Student Login'}
-            </button>
+          <div className="pt-6 text-center">
+            <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">
+                This program is designed by Ms. Huang
+            </p>
           </div>
         </form>
       </div>
@@ -309,45 +260,28 @@ const App: React.FC = () => {
   );
 
   const renderPractice = () => {
-    // Safety check if queue is empty
-    if (practiceQueue.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center p-8">
-                <p className="mb-4">No characters to practice.</p>
-                <Button onClick={() => setCurrentView(AppView.DASHBOARD)}>Back</Button>
-            </div>
-        );
-    }
+    if (practiceQueue.length === 0) return null;
 
     const currentTarget = practiceQueue[queueIndex];
     const isRoundComplete = practiceCount >= 3;
     const isLessonComplete = isRoundComplete && queueIndex >= practiceQueue.length - 1;
 
-    // Show completion screen ONLY if the whole lesson is done
+    // Lesson Complete Success Screen
     if (isLessonComplete) {
         return (
-            <div className="max-w-xl mx-auto animate-scale-in text-center pt-12">
-                <div className="bg-white p-12 rounded-3xl shadow-xl border-4 border-green-100 flex flex-col items-center">
-                    <div className="w-32 h-32 bg-green-100 rounded-full flex items-center justify-center text-green-600 mb-8 animate-bounce">
-                        <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                        </svg>
-                    </div>
-                    <h2 className="text-4xl font-bold text-stone-800 mb-4 font-serif-sc">Excellent Work!</h2>
-                    <p className="text-stone-500 text-lg mb-8">
-                        You have successfully completed all characters in this lesson.
+            <div className="max-w-xl mx-auto pt-12 animate-float">
+                <div className="bg-white p-12 rounded-[3rem] shadow-xl border-4 border-emerald-100 flex flex-col items-center text-center">
+                    <div className="text-8xl mb-6 animate-bounce">🌟</div>
+                    <h2 className="text-4xl font-extrabold text-emerald-600 mb-4">Awesome Job!</h2>
+                    <p className="text-slate-500 text-lg mb-8 font-medium">
+                        You finished the lesson!
                     </p>
                     <Button 
-                        className="w-full max-w-xs justify-center py-4 text-xl" 
+                        className="w-full max-w-xs py-4 text-xl" 
                         onClick={() => setCurrentView(AppView.DASHBOARD)}
                     >
-                        Return to Dashboard
+                        Back to Dashboard
                     </Button>
-                </div>
-                
-                <div className="mt-8 text-stone-400">
-                    <p>Keep up the great spirit!</p>
-                    <div className="text-2xl mt-2">加油!</div>
                 </div>
             </div>
         );
@@ -355,44 +289,45 @@ const App: React.FC = () => {
 
     // Active Practice View
     return (
-        <div className="max-w-2xl mx-auto animate-fade-in">
+        <div className="max-w-2xl mx-auto">
             <div className="mb-6 flex items-center justify-between">
-                <Button variant="secondary" onClick={() => setCurrentView(AppView.DASHBOARD)}>Exit</Button>
-                <div className="flex items-center gap-2">
-                    <span className="text-stone-500 text-sm font-semibold">
-                        PROGRESS: {queueIndex + 1}/{practiceQueue.length}
+                <Button variant="ghost" onClick={() => setCurrentView(AppView.DASHBOARD)}>
+                    ← Quit
+                </Button>
+                <div className="flex items-center gap-3">
+                    <span className="text-indigo-300 font-bold tracking-widest text-sm">
+                        LEVEL {queueIndex + 1} / {practiceQueue.length}
                     </span>
-                    <span className="w-10 h-10 flex items-center justify-center bg-white border border-stone-200 rounded text-xl font-serif-sc font-bold text-red-800">
+                    <div className="w-12 h-12 flex items-center justify-center bg-indigo-500 rounded-2xl text-2xl font-serif-sc font-bold text-white shadow-lg shadow-indigo-200">
                         {currentTarget}
-                    </span>
+                    </div>
                 </div>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-lg border border-stone-100 flex flex-col items-center">
-                
-                {/* Round Indicators */}
-                <div className="flex gap-3 mb-8">
+            <div className="bg-white/80 backdrop-blur p-8 rounded-[2.5rem] shadow-xl border border-white flex flex-col items-center relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
+                    <div 
+                        className="h-full bg-emerald-400 transition-all duration-500 rounded-r-full" 
+                        style={{ width: `${((queueIndex) / practiceQueue.length) * 100}%` }}
+                    />
+                </div>
+
+                <div className="flex gap-2 mb-6 mt-4">
                     {[1, 2, 3].map((step) => (
                         <div 
                             key={step} 
-                            className={`w-12 h-2 rounded-full transition-all duration-300 ${
-                                step <= practiceCount ? 'bg-green-500' : 'bg-stone-200'
+                            className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                                step <= practiceCount ? 'bg-emerald-400 scale-110' : 'bg-slate-200'
                             }`}
                         />
                     ))}
                 </div>
 
-                <h2 className="text-2xl font-bold text-stone-800 mb-2">
-                    {isRoundComplete ? 'Good Job!' : `Practice Round ${practiceCount + 1} of 3`}
+                <h2 className="text-2xl font-extrabold text-slate-700 mb-2">
+                    {isRoundComplete ? 'Good Job!' : `Write it ${3 - practiceCount} more times`}
                 </h2>
-                <p className="text-stone-500 mb-8 text-center">
-                    {isRoundComplete 
-                        ? 'Moving to the next character...' 
-                        : 'Write the character correctly in the box below to advance.'}
-                </p>
 
                 {!isRoundComplete ? (
-                    // By changing the key, we force the HanziPlayer to remount and reset its state for the next round
                     <HanziPlayer 
                         key={`${currentTarget}-${practiceCount}`}
                         character={currentTarget} 
@@ -400,62 +335,67 @@ const App: React.FC = () => {
                         onComplete={handlePracticeRoundComplete}
                     />
                 ) : (
-                    // Interstitial "Next Character" state
-                    <div className="flex flex-col items-center animate-fade-in">
-                        <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-green-500 mb-4">
-                            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                            </svg>
-                        </div>
-                        <h3 className="text-xl font-bold text-stone-800 mb-6">Ready for next word?</h3>
+                    <div className="flex flex-col items-center py-12 animate-fade-in">
+                        <div className="text-6xl mb-6 animate-bounce">✨</div>
                         <Button 
-                            className="w-48 justify-center py-3 text-lg" 
+                            className="w-48 text-lg" 
                             onClick={handleNextCharacter}
                         >
-                            Next Character
+                            Next Word →
                         </Button>
                     </div>
                 )}
             </div>
-            
-            {!isRoundComplete && (
-                <p className="text-center text-stone-400 text-xs mt-8 max-w-sm mx-auto">
-                    Note: The characters are displayed based on your setting ({student?.scriptPreference}).
-                </p>
-            )}
         </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 pb-12">
+    <div className="min-h-screen bg-sky-50 text-slate-800 pb-12 font-sans selection:bg-indigo-100 selection:text-indigo-700">
         {/* Modal */}
         {showSetup && <SetupModal onClose={() => {
             setShowSetup(false);
             setIsConfigured(!!sheetService.getUrl());
         }} />}
 
-        {/* Header (except login) */}
+        {/* Header */}
         {currentView !== AppView.LOGIN && (
-             <header className="bg-white border-b border-stone-200 sticky top-0 z-50">
-                <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-2 cursor-pointer" onClick={() => {
-                        if (userRole === 'teacher') setCurrentView(AppView.TEACHER_DASHBOARD);
-                        else setCurrentView(AppView.DASHBOARD);
-                    }}>
-                         <div className="w-8 h-8 bg-red-700 rounded flex items-center justify-center text-white font-serif-sc font-bold">文</div>
-                         <span className="font-bold text-lg text-stone-800">HanziMaster</span>
+             <header className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-sky-100 shadow-sm">
+                <div className="max-w-5xl mx-auto px-6 h-20 flex items-center justify-between">
+                    <div 
+                        className="flex items-center gap-3 cursor-pointer group" 
+                        onClick={() => {
+                            if (student && (student.name === 'Ms. Huang' || student.name === 'Teacher')) {
+                                setCurrentView(AppView.TEACHER_DASHBOARD);
+                            } else if (student) {
+                                setCurrentView(AppView.DASHBOARD);
+                            }
+                        }}
+                    >
+                         <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-indigo-200 group-hover:rotate-12 transition-transform">
+                             📖
+                         </div>
+                         <div className="flex flex-col">
+                             <span className="font-extrabold text-lg text-slate-800 leading-none">佛光山中文學校</span>
+                             <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Learning Portal</span>
+                         </div>
                     </div>
-                    {student && <div className="text-sm font-medium text-stone-500">Student: {student.name}</div>}
-                    {userRole === 'teacher' && <div className="text-sm font-medium text-red-600">Teacher Mode</div>}
+                    
+                    <div className="flex items-center gap-4">
+                        {student && (
+                            <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full ${student.name === 'Ms. Huang' || student.name === 'Teacher' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'}`}>
+                                <span className="text-lg">{student.name === 'Ms. Huang' || student.name === 'Teacher' ? '🍎' : '🎓'}</span>
+                                <span className="text-sm font-bold">{student.name}</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </header>
         )}
 
-      <main className="max-w-6xl mx-auto px-4 pt-8">
+      <main className="max-w-5xl mx-auto px-4 pt-8">
         {currentView === AppView.LOGIN && renderLogin()}
         
-        {/* Student Views */}
         {currentView === AppView.DASHBOARD && student && (
           <Dashboard 
             student={student} 
@@ -464,7 +404,9 @@ const App: React.FC = () => {
             onLogout={handleLogout}
           />
         )}
+        
         {currentView === AppView.PRACTICE && renderPractice()}
+        
         {currentView === AppView.REPORT && student && (
             <ProgressReport 
                 student={student}
@@ -473,9 +415,8 @@ const App: React.FC = () => {
             />
         )}
 
-        {/* Teacher Views */}
         {currentView === AppView.TEACHER_DASHBOARD && (
-            <TeacherDashboard onLogout={handleLogout} />
+            <TeacherDashboard onLogout={handleLogout} onOpenSetup={() => setShowSetup(true)} />
         )}
       </main>
     </div>

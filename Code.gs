@@ -1,6 +1,6 @@
 
 // CONFIGURATION
-const VERSION = 'v1.12'; 
+const VERSION = 'v1.14'; 
 // Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
@@ -371,7 +371,7 @@ function handleLogin(student) {
   let existingId = "";
   let correctName = inputName; 
 
-  // Fix: Check header for 'Script' dynamically
+  // Check header for 'Script' dynamically
   let scriptColIndex = headers.indexOf('Script') + 1; // 1-based index
   
   // If column is missing, create it
@@ -381,7 +381,7 @@ function handleLogin(student) {
       scriptColIndex = lastCol + 1;
   }
 
-  // Case-insensitive search
+  // Case-insensitive search for existing user
   for (let i = 1; i < data.length; i++) {
     const rowName = String(data[i][1]).trim();
     if (rowName.toLowerCase() == inputName.toLowerCase()) { 
@@ -396,6 +396,7 @@ function handleLogin(student) {
   const timestamp = new Date().toISOString();
 
   if (foundRow > 0) {
+    // Existing User
     if (storedPassword === "" && inputPass !== "") {
        sheet.getRange(foundRow, 5).setValue(inputPass);
     } else if (String(storedPassword) !== String(inputPass)) {
@@ -411,20 +412,24 @@ function handleLogin(student) {
     return response({ status: 'success', student: { ...student, id: existingId, name: correctName, scriptPreference: scriptPref } });
 
   } else {
-    // AUTO-REGISTER if not found
+    // New User: Use appendRow to prevent data fragmentation
     const newId = 's-' + new Date().getTime();
     
-    // Explicitly set values for the first few columns
-    sheet.getRange(sheet.getLastRow() + 1, 1).setValue(newId);
-    sheet.getRange(sheet.getLastRow() + 1, 2).setValue(inputName);
-    sheet.getRange(sheet.getLastRow() + 1, 3).setValue(timestamp);
-    sheet.getRange(sheet.getLastRow() + 1, 4).setValue(timestamp);
-    sheet.getRange(sheet.getLastRow() + 1, 5).setValue(inputPass);
+    // Construct the row array. Standard columns:
+    // 0: ID, 1: Name, 2: JoinedAt, 3: LastLogin, 4: Password
+    const rowData = [newId, inputName, timestamp, timestamp, inputPass];
     
-    // Set script preference
+    // Add Script preference to the correct column
+    // scriptColIndex is 1-based. If it is 6, we need index 5.
     if (scriptColIndex > 0) {
-        sheet.getRange(sheet.getLastRow() + 1, scriptColIndex).setValue(scriptPref);
+        // Pad array if script column is far away (unlikely with setup(), but safe)
+        while(rowData.length < scriptColIndex - 1) {
+            rowData.push("");
+        }
+        rowData[scriptColIndex - 1] = scriptPref;
     }
+    
+    sheet.appendRow(rowData);
     
     return response({ status: 'success', student: { ...student, id: newId, name: inputName, scriptPreference: scriptPref } });
   }
