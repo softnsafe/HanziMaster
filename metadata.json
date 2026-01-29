@@ -1,5 +1,7 @@
 {
   "name": "HanziMaster",
   "description": "An AI-powered Chinese handwriting practice application where students can practice characters assigned by teachers and receive instant feedback via Gemini Vision.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

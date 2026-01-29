@@ -1,3 +1,4 @@
+
 import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary } from '../types';
 
 const STORAGE_KEY = 'hanzi_master_backend_url';
@@ -81,10 +82,18 @@ export const sheetService = {
     if (!url) {
       return [
         {
-          id: 'mock-1',
+          id: 'mock-setup',
           title: 'Setup Required',
           characters: ['设', '置'],
-          description: 'Please click the gear icon on the login screen to configure your Google Sheet backend.'
+          description: 'Please click the gear icon on the login screen to configure your Google Sheet backend.',
+          type: 'WRITING'
+        },
+        {
+          id: 'mock-pinyin',
+          title: 'Pinyin Demo',
+          characters: ['拼', '音'],
+          description: 'This is a demo for Pinyin practice mode.',
+          type: 'PINYIN'
         }
       ];
     }
@@ -96,7 +105,14 @@ export const sheetService = {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      return data.lessons || [];
+      
+      // Ensure strict typing when receiving data
+      const lessons = (data.lessons || []).map((l: any) => ({
+          ...l,
+          type: l.type || 'WRITING' // Ensure type is present, though backend should ideally provide it
+      }));
+      
+      return lessons;
     } catch (e) {
       console.error("Failed to fetch assignments:", e);
       return [];
@@ -191,6 +207,40 @@ export const sheetService = {
     }
   },
 
+  async editAssignment(lesson: Lesson): Promise<{ success: boolean; message?: string }> {
+    const url = this.getUrl();
+    if (!url) return { success: false, message: "Backend URL is missing." };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'omit',
+        redirect: 'follow',
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: 'editAssignment',
+          payload: lesson
+        })
+      });
+
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        return { success: false, message: "Server returned invalid response." };
+      }
+
+      if (data.status === 'success') {
+        return { success: true };
+      } else {
+        return { success: false, message: data.message || "Unknown server error" };
+      }
+    } catch (e: any) {
+      return { success: false, message: e.message || "Network connection failed" };
+    }
+  },
+
   async savePracticeRecord(studentName: string, record: PracticeRecord): Promise<void> {
     const url = this.getUrl();
     if (!url) return;
@@ -228,6 +278,27 @@ export const sheetService = {
     } catch (e) {
       console.error("Failed to fetch history:", e);
       return [];
+    }
+  },
+
+  async submitFeedback(name: string, email: string, message: string): Promise<{ success: boolean; message?: string }> {
+    const url = this.getUrl();
+    if (!url) return { success: false, message: "Backend not connected" };
+
+    try {
+      await fetch(url, {
+        method: 'POST',
+        credentials: 'omit',
+        redirect: 'follow',
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({
+          action: 'submitFeedback',
+          payload: { name, email, message }
+        })
+      });
+      return { success: true };
+    } catch (e) {
+      return { success: false, message: "Network error" };
     }
   },
 

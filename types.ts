@@ -1,6 +1,10 @@
+
+
 export type ScriptType = 'Simplified' | 'Traditional';
 
 export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+
+export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS';
 
 export interface StudentAssignment {
   assignmentId: string;
@@ -19,6 +23,9 @@ export interface StudentSummary {
   id: string;
   name: string;
   assignmentsCompleted: number;
+  completedWriting?: number; // New
+  completedPinyin?: number;  // New
+  completedBoth?: number;    // New
   averageScore: number;
   lastActive: string;
   totalPracticed: number;
@@ -29,9 +36,10 @@ export interface PracticeRecord {
   id: string;
   character: string;
   score: number;
-  feedback: string;
+  details: string; // Renamed from feedback to details
   timestamp: number;
   imageUrl?: string; // Base64 of the attempt
+  type?: PracticeMode; // 'WRITING' or 'PINYIN'
 }
 
 export interface Lesson {
@@ -41,13 +49,23 @@ export interface Lesson {
   description: string;
   startDate?: string; // ISO Date String YYYY-MM-DD
   endDate?: string;   // ISO Date String YYYY-MM-DD
+  type: PracticeMode; // Strict Type Required
+}
+
+export interface Flashcard {
+  character: string;
+  pinyin: string; // Numbered: ni3
+  definition: string;
+  emoji: string; // Acts as the 'Picture'
 }
 
 export enum AppView {
   LOGIN = 'LOGIN',
   DASHBOARD = 'DASHBOARD',
   TEACHER_DASHBOARD = 'TEACHER_DASHBOARD',
-  PRACTICE = 'PRACTICE',
+  PRACTICE_WRITING = 'PRACTICE_WRITING',
+  PRACTICE_PINYIN = 'PRACTICE_PINYIN',
+  PRACTICE_FILL_IN_BLANKS = 'PRACTICE_FILL_IN_BLANKS',
   REPORT = 'REPORT'
 }
 
