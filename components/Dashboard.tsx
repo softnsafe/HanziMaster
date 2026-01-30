@@ -250,12 +250,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                     {filteredAssignments.length > 0 ? (
                     filteredAssignments.map((lesson, idx) => {
                         const isDone = isModeDone(lesson, selectedMode);
+                        const status = getStatus(lesson.id);
                         
+                        const isCompleted = isDone || status === 'COMPLETED';
+                        const isInProgress = status === 'IN_PROGRESS' && !isCompleted;
+
                         return (
                             <div 
                                 key={lesson.id} 
                                 className={`group bg-white rounded-[2rem] p-6 shadow-lg border-2 transition-all hover:-translate-y-1 ${
-                                    isDone ? 'border-emerald-200 shadow-emerald-100' : 
+                                    isCompleted ? 'border-emerald-200 shadow-emerald-100' : 
+                                    isInProgress ? 'border-amber-200 shadow-amber-100' :
                                     'border-indigo-100 shadow-indigo-100'
                                 }`}
                             >
@@ -264,8 +269,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                                         #{idx + 1}
                                     </div>
                                     <div className="flex flex-col items-end gap-2">
-                                        {isDone && <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">Completed</span>}
-                                        {!isDone && <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-full text-xs font-bold">To Do</span>}
+                                        {isCompleted && <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">Completed</span>}
+                                        {isInProgress && <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">In Progress</span>}
+                                        {(!isCompleted && !isInProgress) && <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-full text-xs font-bold">To Do</span>}
                                     </div>
                                 </div>
                                 
@@ -280,10 +286,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                                 
                                 <Button 
                                     onClick={() => onStartPractice(lesson, selectedMode)} 
-                                    className={`w-full ${isDone ? 'opacity-80' : ''}`}
-                                    variant={isDone ? 'outline' : 'primary'}
+                                    className={`w-full ${isCompleted ? 'opacity-80' : ''}`}
+                                    variant={isCompleted ? 'outline' : 'primary'}
                                 >
-                                    {isDone ? 'Practice Again' : 'Start Practice'}
+                                    {isCompleted ? 'Practice Again' : isInProgress ? 'Continue' : 'Start Practice'}
                                 </Button>
                             </div>
                         );

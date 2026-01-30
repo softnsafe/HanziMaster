@@ -1,7 +1,17 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization of AI instance
+let aiInstance: GoogleGenAI | null = null;
+
+const getAI = (): GoogleGenAI => {
+  if (!aiInstance) {
+    // Fallback to empty string to prevent crash if key is missing during render
+    const apiKey = process.env.API_KEY || ''; 
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+};
 
 // --- Audio Decoding Helpers ---
 function decode(base64: string) {
@@ -45,6 +55,7 @@ export const playPronunciation = async (text: string) => {
           await audioContext.resume();
       }
 
+      const ai = getAI();
       const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
           contents: [{ parts: [{ text: text }] }],
@@ -85,6 +96,7 @@ export const playPronunciation = async (text: string) => {
 
 export const generateLobbyBackground = async (): Promise<string | null> => {
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
@@ -119,6 +131,7 @@ export const generateLobbyBackground = async (): Promise<string | null> => {
 
 export const getFlashcardData = async (character: string): Promise<Flashcard> => {
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
@@ -168,6 +181,7 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
 
 export const generateDistractors = async (answer: string, context: string): Promise<string[]> => {
     try {
+        const ai = getAI();
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: {
@@ -205,6 +219,7 @@ export const gradeHandwriting = async (
     // Remove header if present (e.g., "data:image/png;base64,")
     const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
 
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
@@ -238,7 +253,7 @@ export const gradeHandwriting = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.INTEGER },
+            score: { type: Type.INTEGER },answer 
             feedback: { type: Type.STRING },
             corrections: { 
               type: Type.ARRAY,

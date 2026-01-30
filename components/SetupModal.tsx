@@ -10,7 +10,7 @@ interface SetupModalProps {
 
 const APPS_SCRIPT_CODE = `
 // CONFIGURATION
-const VERSION = 'v1.40'; // Updated for High Concurrency
+const VERSION = 'v1.41'; // Added Login Logging
 const SHEET_ID = ''; 
 
 function getSpreadsheet() {
@@ -63,6 +63,13 @@ function setup() {
   let saSheet = ss.getSheetByName('StudentAssignments');
   if (!saSheet) { saSheet = ss.insertSheet('StudentAssignments'); saSheet.appendRow(['StudentID', 'AssignmentID', 'Status', 'Timestamp']); saSheet.setFrozenRows(1); }
 
+  let logSheet = ss.getSheetByName('LoginLogs');
+  if (!logSheet) {
+    logSheet = ss.insertSheet('LoginLogs');
+    logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'InputPassword']);
+    logSheet.setFrozenRows(1);
+  }
+
   let fbSheet = ss.getSheetByName('Feedback');
   if (!fbSheet) { 
     fbSheet = ss.insertSheet('Feedback'); 
@@ -84,7 +91,7 @@ function findColumnIndex(headers, keys) {
 }
 
 function doGet(e) {
-  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.40");
+  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.41");
   const params = e.parameter; const action = params.action;
   try {
       if (action === 'getAssignments') return getAssignments();
@@ -321,8 +328,30 @@ function handleLogin(student) {
   if (scriptColIndex === 0) { const lastCol = sheet.getLastColumn(); sheet.getRange(1, lastCol + 1).setValue('Script'); scriptColIndex = lastCol + 1; }
   for (let i = 1; i < data.length; i++) { if (String(data[i][1]).trim().toLowerCase() == inputName.toLowerCase()) { foundRow = i + 1; existingId = String(data[i][0]); correctName = String(data[i][1]).trim(); break; } }
   const timestamp = new Date().toISOString();
-  if (foundRow > 0) { sheet.getRange(foundRow, 4).setValue(timestamp); if (scriptColIndex > 0) sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); return response({ status: 'success', student: { ...student, id: existingId, name: correctName, scriptPreference: scriptPref } }); } 
-  else { const newId = 's-' + new Date().getTime(); const rowData = [newId, inputName, timestamp, timestamp, inputPass]; if (scriptColIndex > 0) { while(rowData.length < scriptColIndex - 1) rowData.push(""); rowData[scriptColIndex - 1] = scriptPref; } sheet.appendRow(rowData); return response({ status: 'success', student: { ...student, id: newId, name: inputName, scriptPreference: scriptPref } }); }
+  
+  let finalId = existingId;
+  let finalName = correctName;
+
+  if (foundRow > 0) { 
+      sheet.getRange(foundRow, 4).setValue(timestamp); 
+      if (scriptColIndex > 0) sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); 
+  } else { 
+      const newId = 's-' + new Date().getTime(); 
+      finalId = newId;
+      finalName = inputName;
+      const rowData = [newId, inputName, timestamp, timestamp, inputPass]; 
+      if (scriptColIndex > 0) { while(rowData.length < scriptColIndex - 1) rowData.push(""); rowData[scriptColIndex - 1] = scriptPref; } 
+      sheet.appendRow(rowData); 
+  }
+  
+  // Record to LoginLogs
+  let logSheet = ss.getSheetByName('LoginLogs');
+  if (!logSheet) { setup(); logSheet = ss.getSheetByName('LoginLogs'); }
+  if (logSheet) {
+      logSheet.appendRow([new Date(), finalId, finalName, 'Login', '']);
+  }
+
+  return response({ status: 'success', student: { ...student, id: finalId, name: finalName, scriptPreference: scriptPref } });
 }
 function saveRecord(payload) {
   const ss = getSpreadsheet(); let sheet = ss.getSheetByName('Progress');
@@ -360,13 +389,22 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
     setIsSaving(true);
     setStatus('idle');
     
-    if (!url.includes('script.google.com')) {
+    if (!url || !url.trim()) {
         setStatus('error');
-        setStatusMsg('Invalid URL.');
+        setStatusMsg('Please enter a URL.');
         setIsSaving(false);
         return;
     }
-    sheetService.saveUrl(url);
+    
+    const cleanUrl = url.trim();
+    
+    if (!cleanUrl.includes('script.google.com')) {
+        setStatus('error');
+        setStatusMsg('Invalid URL (must contain script.google.com).');
+        setIsSaving(false);
+        return;
+    }
+    sheetService.saveUrl(cleanUrl);
 
     if (force) {
         setStatus('success');
@@ -402,72 +440,88 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
            <div>
-             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.40)</h2>
+             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.41)</h2>
              <p className="text-sm text-slate-500 font-bold">Connect your Google Sheet</p>
            </div>
-           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+           <button onClick={onClose} className="text-slate-400 hover:text-slate-600" type="button">
              <span className="text-2xl">×</span>
            </button>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1 space-y-8">
-            <section>
-                <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center border border-indigo-200">1</div>
-                    <h3 className="font-bold text-slate-800">Google Apps Script</h3>
-                </div>
-                <div className="pl-11 space-y-4">
-                     <p className="text-sm text-slate-600">
-                        Copy the new code below (v1.40). <br/>
-                        <strong>Important:</strong> You must create a new deployment after pasting this code.
-                    </p>
-                    <div className="relative">
-                        <textarea 
-                            readOnly 
-                            className="w-full h-32 p-4 bg-slate-800 text-emerald-400 font-mono text-xs rounded-xl resize-none"
-                            value={APPS_SCRIPT_CODE}
-                        />
-                        <button 
-                            onClick={copyCode}
-                            className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors"
-                        >
-                            Copy Code
-                        </button>
+        {/* Replaced form with div to prevent browser validation */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="p-6 overflow-y-auto flex-1 space-y-8">
+                <section>
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center border border-indigo-200">1</div>
+                        <h3 className="font-bold text-slate-800">Google Apps Script</h3>
                     </div>
-                </div>
-            </section>
+                    <div className="pl-11 space-y-4">
+                        <p className="text-sm text-slate-600">
+                            Copy the new code below (v1.41). <br/>
+                            <strong>Important:</strong> You must create a new deployment after pasting this code.
+                        </p>
+                        <div className="relative">
+                            <textarea 
+                                readOnly 
+                                className="w-full h-32 p-4 bg-slate-800 text-emerald-400 font-mono text-xs rounded-xl resize-none"
+                                value={APPS_SCRIPT_CODE}
+                            />
+                            <button 
+                                onClick={copyCode}
+                                type="button"
+                                className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors"
+                            >
+                                Copy Code
+                            </button>
+                        </div>
+                    </div>
+                </section>
 
-            <section>
-                <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center border border-indigo-200">2</div>
-                    <h3 className="font-bold text-slate-800">Connect Backend</h3>
-                </div>
-                <div className="pl-11">
-                    <input 
-                        type="text" 
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        placeholder="Paste Web App URL here..."
-                        className="w-full px-5 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-mono text-sm"
-                    />
-                </div>
-            </section>
-        </div>
+                <section>
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold flex items-center justify-center border border-indigo-200">2</div>
+                        <h3 className="font-bold text-slate-800">Connect Backend</h3>
+                    </div>
+                    <div className="pl-11">
+                        <input 
+                            type="text" 
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    handleSave(false);
+                                }
+                            }}
+                            placeholder="Paste Web App URL here..."
+                            className="w-full px-5 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-mono text-sm"
+                            autoComplete="off"
+                        />
+                    </div>
+                </section>
+            </div>
 
-        <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col gap-4">
-            {status !== 'idle' && (
-                 <div className={`text-sm px-4 py-3 rounded-xl font-bold flex justify-between items-center ${
-                    status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                }`}>
-                    <span>{statusMsg}</span>
-                    {status === 'error' && (
-                        <button onClick={() => handleSave(true)} className="underline ml-2">Save Anyway</button>
-                    )}
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col gap-4">
+                {status !== 'idle' && (
+                    <div className={`text-sm px-4 py-3 rounded-xl font-bold flex justify-between items-center ${
+                        status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
+                        <span>{statusMsg}</span>
+                        {status === 'error' && (
+                            <button onClick={() => handleSave(true)} type="button" className="underline ml-2">Save Anyway</button>
+                        )}
+                    </div>
+                )}
+                <div className="flex justify-end gap-3">
+                    <Button variant="ghost" onClick={onClose} type="button">Cancel</Button>
+                    <Button 
+                        onClick={() => handleSave(false)} 
+                        type="button" 
+                        isLoading={isSaving}
+                    >
+                        {isSaving ? 'Testing...' : 'Save & Connect'}
+                    </Button>
                 </div>
-            )}
-            <div className="flex justify-end gap-3">
-                <Button variant="ghost" onClick={onClose}>Cancel</Button>
-                <Button onClick={() => handleSave(false)} isLoading={isSaving}>Save & Connect</Button>
             </div>
         </div>
       </div>

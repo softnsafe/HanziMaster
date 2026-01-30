@@ -152,7 +152,7 @@ const App: React.FC = () => {
          }
       } else {
          if (result.message === "Backend not configured") {
-             setLoginError("App is Offline. Please contact your teacher.");
+             setLoginError("App is Offline. Please click the gear icon ⚙️ above to setup.");
          } else {
              setLoginError(result.message || 'Login failed');
          }
@@ -310,17 +310,26 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Status Indicator */}
+      {/* Status Indicator & Setup */}
       <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3">
-          <div 
-            className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm shadow-sm transition-all border select-none ${
-                isConfigured 
-                ? 'bg-white/90 backdrop-blur text-emerald-600 border-emerald-200' 
-                : 'bg-white/90 backdrop-blur text-rose-600 border-rose-200'
-            }`}
-          >
-              <div className={`w-2 h-2 rounded-full ${isConfigured ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-              {isConfigured ? 'System Online' : 'System Offline'}
+          <div className="flex items-center gap-2">
+            <button 
+                onClick={() => setShowSetup(true)}
+                className="w-10 h-10 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-slate-400 hover:text-indigo-600 shadow-sm border border-slate-200 transition-all hover:rotate-90 hover:bg-white"
+                title="Configure Backend"
+            >
+                ⚙️
+            </button>
+            <div 
+                className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm shadow-sm transition-all border select-none ${
+                    isConfigured 
+                    ? 'bg-white/90 backdrop-blur text-emerald-600 border-emerald-200' 
+                    : 'bg-white/90 backdrop-blur text-rose-600 border-rose-200'
+                }`}
+            >
+                <div className={`w-2 h-2 rounded-full ${isConfigured ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                {isConfigured ? 'System Online' : 'Offline'}
+            </div>
           </div>
       </div>
 

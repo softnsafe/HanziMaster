@@ -1,6 +1,6 @@
 
 // CONFIGURATION
-const VERSION = 'v1.31'; 
+const VERSION = 'v1.41'; 
 // Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
@@ -81,14 +81,21 @@ function setup() {
     saSheet.setFrozenRows(1);
   }
 
-  // 5. Setup Feedback Sheet
+  // 5. Setup LoginLogs Sheet (New v1.41)
+  let logSheet = ss.getSheetByName('LoginLogs');
+  if (!logSheet) {
+    logSheet = ss.insertSheet('LoginLogs');
+    logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'InputPassword']);
+    logSheet.setFrozenRows(1);
+  }
+
+  // 6. Setup Feedback Sheet
   let fbSheet = ss.getSheetByName('Feedback');
   if (!fbSheet) {
     fbSheet = ss.insertSheet('Feedback');
     fbSheet.appendRow(['Timestamp', 'Name', 'Email', 'Message']);
     fbSheet.setFrozenRows(1);
   } else {
-    // Migration check for Email column
     const headers = fbSheet.getRange(1, 1, 1, fbSheet.getLastColumn()).getValues()[0];
     if (headers.indexOf('Email') === -1) {
       fbSheet.getRange(1, headers.length + 1).setValue('Email');
@@ -133,7 +140,10 @@ function doGet(e) {
 
 function doPost(e) {
   if (!e || !e.postData) return response({status: 'error', message: 'No data'});
+  // Use LockService to prevent race conditions during writes
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000); // Wait up to 10 seconds for other users
     const data = JSON.parse(e.postData.contents);
     const action = data.action;
     if (action === 'login') return handleLogin(data.payload);
@@ -146,6 +156,8 @@ function doPost(e) {
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) {
     return response({status: 'error', message: error.toString()});
+  } finally {
+      lock.releaseLock();
   }
 }
 
@@ -467,8 +479,30 @@ function handleLogin(student) {
   if (scriptColIndex === 0) { const lastCol = sheet.getLastColumn(); sheet.getRange(1, lastCol + 1).setValue('Script'); scriptColIndex = lastCol + 1; }
   for (let i = 1; i < data.length; i++) { if (String(data[i][1]).trim().toLowerCase() == inputName.toLowerCase()) { foundRow = i + 1; existingId = String(data[i][0]); correctName = String(data[i][1]).trim(); break; } }
   const timestamp = new Date().toISOString();
-  if (foundRow > 0) { sheet.getRange(foundRow, 4).setValue(timestamp); if (scriptColIndex > 0) sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); return response({ status: 'success', student: { ...student, id: existingId, name: correctName, scriptPreference: scriptPref } }); } 
-  else { const newId = 's-' + new Date().getTime(); const rowData = [newId, inputName, timestamp, timestamp, inputPass]; if (scriptColIndex > 0) { while(rowData.length < scriptColIndex - 1) rowData.push(""); rowData[scriptColIndex - 1] = scriptPref; } sheet.appendRow(rowData); return response({ status: 'success', student: { ...student, id: newId, name: inputName, scriptPreference: scriptPref } }); }
+  
+  let finalId = existingId;
+  let finalName = correctName;
+
+  if (foundRow > 0) { 
+      sheet.getRange(foundRow, 4).setValue(timestamp); 
+      if (scriptColIndex > 0) sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); 
+  } else { 
+      const newId = 's-' + new Date().getTime(); 
+      finalId = newId;
+      finalName = inputName;
+      const rowData = [newId, inputName, timestamp, timestamp, inputPass]; 
+      if (scriptColIndex > 0) { while(rowData.length < scriptColIndex - 1) rowData.push(""); rowData[scriptColIndex - 1] = scriptPref; } 
+      sheet.appendRow(rowData); 
+  }
+  
+  // Record to LoginLogs (Updated in v1.41)
+  let logSheet = ss.getSheetByName('LoginLogs');
+  if (!logSheet) { setup(); logSheet = ss.getSheetByName('LoginLogs'); }
+  if (logSheet) {
+      logSheet.appendRow([new Date(), finalId, finalName, 'Login', '']);
+  }
+
+  return response({ status: 'success', student: { ...student, id: finalId, name: finalName, scriptPreference: scriptPref } });
 }
 
 function saveRecord(payload) {
