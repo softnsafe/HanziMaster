@@ -46,19 +46,38 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+  // Auto-refresh logic for small classes
   useEffect(() => {
+    let interval: any;
+    
     if (activeTab === 'progress') {
-        loadProgress();
+        // Initial load with spinner
+        loadProgress(false);
+        
+        // Silent auto-refresh every 10 seconds (Live Mode)
+        interval = setInterval(() => {
+            loadProgress(true);
+        }, 10000);
+        
     } else if (activeTab === 'assignments') {
         loadAssignments();
     }
+    
+    return () => {
+        if (interval) clearInterval(interval);
+    };
   }, [activeTab]);
 
-  const loadProgress = async () => {
-      setIsLoadingProgress(true);
-      const data = await sheetService.getAllStudentProgress();
-      setStudentData(data);
-      setIsLoadingProgress(false);
+  const loadProgress = async (silent = false) => {
+      if (!silent) setIsLoadingProgress(true);
+      try {
+        const data = await sheetService.getAllStudentProgress();
+        setStudentData(data);
+      } catch (e) {
+        console.error("Auto-refresh failed", e);
+      } finally {
+        if (!silent) setIsLoadingProgress(false);
+      }
   };
 
   const loadAssignments = async () => {
@@ -436,13 +455,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       {activeTab === 'progress' && (
          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-indigo-50">
              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                 <div>
-                    <h2 className="text-xl font-extrabold text-slate-800">Class Progress</h2>
-                    <p className="text-sm text-slate-400">Completion count by assignment type.</p>
+                 <div className="flex items-center gap-3">
+                    <div>
+                        <h2 className="text-xl font-extrabold text-slate-800">Class Progress</h2>
+                        <p className="text-sm text-slate-400">Completion count by assignment type.</p>
+                    </div>
+                    {/* Live Indicator */}
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 text-rose-600 rounded-full border border-rose-100 animate-pulse">
+                        <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest">Live Updates</span>
+                    </div>
                  </div>
                  
                  <div className="flex items-center gap-4 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                     <Button variant="outline" className="py-1 px-3 h-8 text-xs" onClick={loadProgress}>Refresh</Button>
+                     <Button variant="outline" className="py-1 px-3 h-8 text-xs" onClick={() => loadProgress(false)}>Refresh Now</Button>
                  </div>
              </div>
              
@@ -458,7 +484,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                      </thead>
                      <tbody className="divide-y divide-slate-100">
                          {studentData.map(s => (
-                             <tr key={s.id} className="hover:bg-slate-50">
+                             <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                                  <td className="p-4 font-bold text-slate-700">{s.name}</td>
                                  <td className="p-4 text-center font-bold text-indigo-600">{s.averageScore}%</td>
                                  <td className="p-4 text-center">

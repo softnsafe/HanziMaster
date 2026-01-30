@@ -9,7 +9,7 @@ interface SetupModalProps {
 
 const APPS_SCRIPT_CODE = `
 // CONFIGURATION
-const VERSION = 'v1.31'; 
+const VERSION = 'v1.40'; // Updated for High Concurrency
 const SHEET_ID = ''; 
 
 function getSpreadsheet() {
@@ -83,7 +83,7 @@ function findColumnIndex(headers, keys) {
 }
 
 function doGet(e) {
-  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.31");
+  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.40");
   const params = e.parameter; const action = params.action;
   try {
       if (action === 'getAssignments') return getAssignments();
@@ -96,8 +96,12 @@ function doGet(e) {
 
 function doPost(e) {
   if (!e || !e.postData) return response({status: 'error', message: 'No data'});
+  // Use LockService to prevent race conditions during writes
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000); // Wait up to 10 seconds for other users
     const data = JSON.parse(e.postData.contents); const action = data.action;
+    
     if (action === 'login') return handleLogin(data.payload);
     else if (action === 'saveRecord') return saveRecord(data.payload);
     else if (action === 'createAssignment') return createAssignment(data.payload);
@@ -105,8 +109,13 @@ function doPost(e) {
     else if (action === 'updateAssignmentStatus') return updateAssignmentStatus(data.payload);
     else if (action === 'seed') return seedData();
     else if (action === 'submitFeedback') return submitFeedback(data.payload);
+    
     return response({status: 'error', message: 'Invalid action: ' + action});
-  } catch (error) { return response({status: 'error', message: error.toString()}); }
+  } catch (error) { 
+      return response({status: 'error', message: 'Server Busy: ' + error.toString()}); 
+  } finally {
+      lock.releaseLock();
+  }
 }
 
 function seedData() {
@@ -328,30 +337,12 @@ function submitFeedback(payload) {
   const ss = getSpreadsheet(); 
   let sheet = ss.getSheetByName('Feedback');
   if (!sheet) { setup(); sheet = ss.getSheetByName('Feedback'); }
-  
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   let emailIndex = findColumnIndex(headers, ['email']);
-  
-  // Migration if needed
-  if (emailIndex === -1) {
-     const nextCol = headers.length + 1;
-     sheet.getRange(1, nextCol).setValue('Email');
-     emailIndex = nextCol - 1;
-  }
-  
-  const row = [];
-  // Ensure row is long enough
-  for(let i=0; i<= Math.max(emailIndex, headers.length - 1); i++) row.push("");
-  
-  const tsIndex = findColumnIndex(headers, ['timestamp']);
-  const nameIndex = findColumnIndex(headers, ['name']);
-  const msgIndex = findColumnIndex(headers, ['message']);
-  
-  if (tsIndex > -1) row[tsIndex] = new Date().toISOString();
-  if (nameIndex > -1) row[nameIndex] = payload.name;
-  if (msgIndex > -1) row[msgIndex] = payload.message;
-  if (emailIndex > -1) row[emailIndex] = payload.email || "";
-  
+  if (emailIndex === -1) { const nextCol = headers.length + 1; sheet.getRange(1, nextCol).setValue('Email'); emailIndex = nextCol - 1; }
+  const row = []; for(let i=0; i<= Math.max(emailIndex, headers.length - 1); i++) row.push("");
+  const tsIndex = findColumnIndex(headers, ['timestamp']); const nameIndex = findColumnIndex(headers, ['name']); const msgIndex = findColumnIndex(headers, ['message']);
+  if (tsIndex > -1) row[tsIndex] = new Date().toISOString(); if (nameIndex > -1) row[nameIndex] = payload.name; if (msgIndex > -1) row[msgIndex] = payload.message; if (emailIndex > -1) row[emailIndex] = payload.email || "";
   sheet.appendRow(row);
   return response({ status: 'success' });
 }
@@ -410,7 +401,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
            <div>
-             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.31)</h2>
+             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.40)</h2>
              <p className="text-sm text-slate-500 font-bold">Connect your Google Sheet</p>
            </div>
            <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -426,7 +417,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                 </div>
                 <div className="pl-11 space-y-4">
                      <p className="text-sm text-slate-600">
-                        Copy the new code below (v1.31). <br/>
+                        Copy the new code below (v1.40). <br/>
                         <strong>Important:</strong> You must create a new deployment after pasting this code.
                     </p>
                     <div className="relative">

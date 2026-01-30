@@ -2,49 +2,52 @@
 import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary } from '../types';
 
 const STORAGE_KEY = 'hanzi_master_backend_url';
-const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbyqZ-sXRyAv17XHFNpthXBqy4dKjvyWlxYof5MDKvT4calWsyC9P8HXpQlnyGOv-gs1Ow/exec';
+
+// 1. Check for Environment Variable (Best for Netlify/Vercel deployment)
+// 2. Fallback to empty string (User must configure via UI or Magic Link)
+const ENV_URL = process.env.REACT_APP_BACKEND_URL || ''; 
+
+// Helper: Exponential Backoff Fetcher
+const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {
+    try {
+        const response = await fetch(url, options);
+        // If server is busy (503) or generic error (500), throw to retry
+        if (response.status >= 500 && response.status < 600) {
+            throw new Error(`Server Error ${response.status}`);
+        }
+        return response;
+    } catch (err) {
+        if (retries > 0) {
+            console.warn(`Request failed, retrying in ${backoff}ms... (${retries} left)`);
+            await new Promise(resolve => setTimeout(resolve, backoff));
+            return fetchWithRetry(url, options, retries - 1, backoff * 2); // Double the wait time
+        }
+        throw err;
+    }
+};
 
 export const sheetService = {
   
   getUrl(): string {
-    // Returns local storage override if present, otherwise the hardcoded production URL
-    return localStorage.getItem(STORAGE_KEY) || DEFAULT_URL;
+    return localStorage.getItem(STORAGE_KEY) || ENV_URL;
   },
 
   saveUrl(url: string) {
-    // Basic cleaning to prevent common copy-paste errors
     let clean = url.trim();
-    
-    // If user pasted the "Edit" URL, try to fix it to "exec"
     if (clean.includes('/edit')) {
        clean = clean.split('/edit')[0] + '/exec';
     } else if (clean.endsWith('/')) {
-       // Remove trailing slash if present (Apps Script exec usually doesn't need it, but keep if clean)
        clean = clean.slice(0, -1);
     }
-    
-    // Ensure it looks like a script URL
-    if (clean.includes('script.google.com') && !clean.endsWith('/exec')) {
-        // If it doesn't end in exec and isn't caught by /edit, warn or append? 
-        // Best to leave as is if we aren't sure, but usually /exec is required.
-        // We will trust the user or the regex below.
-    }
-
     localStorage.setItem(STORAGE_KEY, clean);
   },
 
-  /**
-   * Records student login. Returns the full student object (with ID from DB) on success.
-   */
   async loginStudent(student: Student): Promise<{ success: boolean; message?: string; student?: Student }> {
     const url = this.getUrl();
-    if (!url) {
-      console.warn("Backend URL not configured.");
-      return { success: false, message: "Backend not configured" };
-    }
+    if (!url) return { success: false, message: "Backend not configured" };
     
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit', 
         redirect: 'follow',
@@ -60,20 +63,18 @@ export const sheetService = {
       try {
         data = JSON.parse(text);
       } catch (e) {
-         // Return first 100 chars of response to help debug (likely HTML if error)
-         return { success: false, message: "Server error (HTML response). Check deployment access." };
+         return { success: false, message: "Server error. Please try again." };
       }
 
       if (data.status === 'success') {
-        // Backend might return the existing student data, including persistent ID
         const returnedStudent = data.student || student;
         return { success: true, student: returnedStudent };
       } else {
         return { success: false, message: data.message || "Login failed" };
       }
     } catch (e) {
-      console.error("Failed to record login:", e);
-      return { success: false, message: "Network error" };
+      console.error("Login Error:", e);
+      return { success: false, message: "System busy. Please try again." };
     }
   },
 
@@ -87,34 +88,27 @@ export const sheetService = {
           characters: ['设', '置'],
           description: 'Please click the gear icon on the login screen to configure your Google Sheet backend.',
           type: 'WRITING'
-        },
-        {
-          id: 'mock-pinyin',
-          title: 'Pinyin Demo',
-          characters: ['拼', '音'],
-          description: 'This is a demo for Pinyin practice mode.',
-          type: 'PINYIN'
         }
       ];
     }
 
     try {
-      const response = await fetch(`${url}?action=getAssignments`, {
+      // Add timestamp to prevent caching
+      const response = await fetchWithRetry(`${url}?action=getAssignments&_t=${Date.now()}`, {
         credentials: 'omit',
         redirect: 'follow'
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       
-      // Ensure strict typing when receiving data
       const lessons = (data.lessons || []).map((l: any) => ({
           ...l,
-          type: l.type || 'WRITING' // Ensure type is present, though backend should ideally provide it
+          type: l.type || 'WRITING'
       }));
       
       return lessons;
     } catch (e) {
-      console.error("Failed to fetch assignments:", e);
+      console.error("Fetch Assignments Error:", e);
       return [];
     }
   },
@@ -124,14 +118,13 @@ export const sheetService = {
     if (!url) return [];
 
     try {
-      const response = await fetch(`${url}?action=getAssignmentStatuses&studentId=${encodeURIComponent(studentId)}`, {
+      const response = await fetchWithRetry(`${url}?action=getAssignmentStatuses&studentId=${encodeURIComponent(studentId)}&_t=${Date.now()}`, {
         credentials: 'omit',
         redirect: 'follow'
       });
       const data = await response.json();
       return data.statuses || [];
     } catch (e) {
-      console.error("Failed to fetch statuses:", e);
       return [];
     }
   },
@@ -141,14 +134,13 @@ export const sheetService = {
     if (!url) return [];
 
     try {
-      const response = await fetch(`${url}?action=getAllStudentProgress`, {
+      const response = await fetchWithRetry(`${url}?action=getAllStudentProgress&_t=${Date.now()}`, {
         credentials: 'omit',
         redirect: 'follow'
       });
       const data = await response.json();
       return data.students || [];
     } catch (e) {
-      console.error("Failed to fetch all student progress:", e);
       return [];
     }
   },
@@ -158,7 +150,7 @@ export const sheetService = {
     if (!url) return;
 
     try {
-       await fetch(url, {
+       await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
@@ -169,7 +161,7 @@ export const sheetService = {
         })
       });
     } catch (e) {
-      console.error("Failed to update status:", e);
+      console.error("Update Status Error:", e);
     }
   },
 
@@ -178,7 +170,7 @@ export const sheetService = {
     if (!url) return { success: false, message: "Backend URL is missing." };
 
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
@@ -191,19 +183,15 @@ export const sheetService = {
 
       const text = await response.text();
       let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        return { success: false, message: "Server returned invalid response. Ensure correct deployment." };
-      }
+      try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
 
       if (data.status === 'success') {
         return { success: true };
       } else {
-        return { success: false, message: data.message || "Unknown server error" };
+        return { success: false, message: data.message };
       }
     } catch (e: any) {
-      return { success: false, message: e.message || "Network connection failed" };
+      return { success: false, message: "Network connection failed" };
     }
   },
 
@@ -212,7 +200,7 @@ export const sheetService = {
     if (!url) return { success: false, message: "Backend URL is missing." };
 
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
@@ -225,19 +213,15 @@ export const sheetService = {
 
       const text = await response.text();
       let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        return { success: false, message: "Server returned invalid response." };
-      }
+      try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
 
       if (data.status === 'success') {
         return { success: true };
       } else {
-        return { success: false, message: data.message || "Unknown server error" };
+        return { success: false, message: data.message };
       }
     } catch (e: any) {
-      return { success: false, message: e.message || "Network connection failed" };
+      return { success: false, message: "Network connection failed" };
     }
   },
 
@@ -246,7 +230,7 @@ export const sheetService = {
     if (!url) return;
 
     try {
-      await fetch(url, {
+      await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
@@ -260,7 +244,7 @@ export const sheetService = {
         })
       });
     } catch (e) {
-      console.error("Failed to save record:", e);
+      console.error("Save Record Error:", e);
     }
   },
 
@@ -269,14 +253,13 @@ export const sheetService = {
     if (!url) return [];
 
     try {
-      const response = await fetch(`${url}?action=getHistory&studentName=${encodeURIComponent(studentName)}`, {
+      const response = await fetchWithRetry(`${url}?action=getHistory&studentName=${encodeURIComponent(studentName)}&_t=${Date.now()}`, {
         credentials: 'omit',
         redirect: 'follow'
       });
       const data = await response.json();
       return data.records || [];
     } catch (e) {
-      console.error("Failed to fetch history:", e);
       return [];
     }
   },
@@ -286,7 +269,7 @@ export const sheetService = {
     if (!url) return { success: false, message: "Backend not connected" };
 
     try {
-      await fetch(url, {
+      await fetchWithRetry(url, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
@@ -307,7 +290,7 @@ export const sheetService = {
       if (!url) return { success: false, message: "No URL saved" };
   
       try {
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
           method: 'POST',
           credentials: 'omit',
           redirect: 'follow',
@@ -323,12 +306,10 @@ export const sheetService = {
         try {
             data = JSON.parse(text);
         } catch(e) {
-            // This is critical for debugging permission errors
-            // If permissions are wrong, Google returns HTML "Sign in to continue"
             if (text.includes("<!DOCTYPE html>")) {
                 return { success: false, message: "Permission Error: Deployment access must be 'Anyone'." };
             }
-            return { success: false, message: "Invalid JSON response. Check URL." };
+            return { success: false, message: "Invalid JSON response" };
         }
 
         if (data.status === 'error') {
