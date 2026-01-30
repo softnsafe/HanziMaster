@@ -14,16 +14,7 @@ export default defineConfig(({ mode }) => {
       'process.env.NODE_ENV': JSON.stringify(mode),
     },
     build: {
-      rollupOptions: {
-        // Externalize dependencies loaded via CDN/importmap
-        external: [
-          'react',
-          'react/jsx-runtime',
-          'react-dom',
-          'react-dom/client',
-          '@google/genai'
-        ]
-      }
+      // Empty build config ensures we bundle everything locally
     },
     esbuild: {
       jsx: 'transform',
