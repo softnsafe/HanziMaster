@@ -253,7 +253,7 @@ export const gradeHandwriting = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.INTEGER },answer 
+            score: { type: Type.INTEGER },
             feedback: { type: Type.STRING },
             corrections: { 
               type: Type.ARRAY,
