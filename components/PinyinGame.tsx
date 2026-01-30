@@ -25,7 +25,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
   const inputRef = useRef<HTMLInputElement>(null);
 
   const currentChar = queue[currentIndex];
-  const card = flashcards[currentChar];
+  // Safe access for card
+  const card = currentChar ? flashcards[currentChar] : undefined;
 
   // Fetch card data when character changes
   useEffect(() => {
@@ -42,11 +43,11 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
       setTimeout(() => inputRef.current?.focus(), 100);
     };
     loadCard();
-  }, [currentChar, isFinished]);
+  }, [currentChar, isFinished, flashcards]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!card || status !== 'IDLE') return;
+    if (!card || status !== 'IDLE' || !currentChar) return;
 
     const normalizedInput = inputValue.trim().toLowerCase();
     const normalizedTarget = card.pinyin.toLowerCase().replace(/\s+/g, ''); // remove spaces in pinyin if any
@@ -87,7 +88,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
   };
 
   const handlePlaySound = async () => {
-      if (isPlayingAudio) return;
+      if (isPlayingAudio || !currentChar) return;
       setIsPlayingAudio(true);
       await playPronunciation(currentChar);
       setIsPlayingAudio(false);

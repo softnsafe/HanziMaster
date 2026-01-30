@@ -61,6 +61,8 @@ export const FillInBlanksGame: React.FC<FillInBlanksGameProps> = ({ lesson, onCo
       setSelectedOption(option);
       
       const currentItem = items[currentIndex];
+      if (!currentItem) return;
+
       if (option === currentItem.answer) {
           setStatus('CORRECT');
           onRecordResult(currentItem.answer, 100, 'FILL_IN_BLANKS');
@@ -102,6 +104,8 @@ export const FillInBlanksGame: React.FC<FillInBlanksGameProps> = ({ lesson, onCo
   }
 
   const currentItem = items[currentIndex];
+  // Safe check before render
+  if (!currentItem) return null;
 
   return (
     <div className="max-w-xl mx-auto min-h-[60vh] flex flex-col items-center justify-center p-4">

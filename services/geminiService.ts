@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
 
@@ -51,7 +49,7 @@ export const playPronunciation = async (text: string) => {
           model: "gemini-2.5-flash-preview-tts",
           contents: [{ parts: [{ text: text }] }],
           config: {
-              responseModalities: ["AUDIO"] as any, // Cast to avoid TS enum issues if Modality not imported
+              responseModalities: ["AUDIO"] as any, 
               speechConfig: {
                   voiceConfig: {
                       prebuiltVoiceConfig: { voiceName: 'Kore' }
@@ -103,11 +101,14 @@ export const generateLobbyBackground = async (): Promise<string | null> => {
       },
     });
 
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        const base64EncodeString: string = part.inlineData.data;
-        return `data:image/png;base64,${base64EncodeString}`;
-      }
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (parts) {
+        for (const part of parts) {
+            if (part.inlineData) {
+                const base64EncodeString: string = part.inlineData.data;
+                return `data:image/png;base64,${base64EncodeString}`;
+            }
+        }
     }
     return null;
   } catch (error) {
@@ -188,7 +189,7 @@ export const generateDistractors = async (answer: string, context: string): Prom
         });
 
         const text = response.text;
-        if (!text) return [];
+        if (!text) return ["一", "不", "人"];
         return JSON.parse(text);
     } catch (error) {
         console.error("Error generating distractors:", error);
