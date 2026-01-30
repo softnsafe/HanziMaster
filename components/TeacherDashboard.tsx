@@ -13,8 +13,10 @@ interface TeacherDashboardProps {
   onResetTheme: () => void;
 }
 
+type TabType = 'create' | 'progress' | 'assignments';
+
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup, onUpdateTheme, onResetTheme }) => {
-  const [activeTab, setActiveTab] = useState<'create' | 'progress' | 'assignments'>('create');
+  const [activeTab, setActiveTab] = useState<TabType>('create');
   
   // Create/Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -37,11 +39,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // Progress State
   const [studentData, setStudentData] = useState<StudentSummary[]>([]);
-  const [isLoadingProgress, setIsLoadingProgress] = useState(false);
-
+  
   // Assignments List State
   const [assignments, setAssignments] = useState<Lesson[]>([]);
-  const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
   
   // Theme State
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
@@ -49,43 +49,48 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // Auto-refresh logic for small classes
   useEffect(() => {
-    let interval: any; // Type 'any' used to be compatible with both Node and Browser environments
+    let intervalId: number | undefined; 
     
     if (activeTab === 'progress') {
-        // Initial load with spinner
-        loadProgress(false);
+        // Initial load
+        const loadProgress = async () => {
+             try {
+                const data = await sheetService.getAllStudentProgress();
+                setStudentData(data);
+             } catch (e) { console.error(e); }
+        };
+        loadProgress();
         
         // Silent auto-refresh every 10 seconds (Live Mode)
-        interval = setInterval(() => {
-            loadProgress(true);
-        }, 10000);
+        intervalId = window.setInterval(loadProgress, 10000);
         
     } else if (activeTab === 'assignments') {
+        const loadAssignments = async () => {
+            try {
+                const data = await sheetService.getAssignments();
+                setAssignments(data.filter(l => l.id !== 'mock-1'));
+            } catch (e) { console.error(e); }
+        };
         loadAssignments();
     }
     
     return () => {
-        if (interval) clearInterval(interval);
+        if (intervalId) window.clearInterval(intervalId);
     };
   }, [activeTab]);
 
   const loadProgress = async (silent = false) => {
-      if (!silent) setIsLoadingProgress(true);
       try {
         const data = await sheetService.getAllStudentProgress();
         setStudentData(data);
       } catch (e) {
         console.error("Auto-refresh failed", e);
-      } finally {
-        if (!silent) setIsLoadingProgress(false);
       }
   };
 
   const loadAssignments = async () => {
-      setIsLoadingAssignments(true);
       const data = await sheetService.getAssignments();
       setAssignments(data.filter(l => l.id !== 'mock-1'));
-      setIsLoadingAssignments(false);
   };
 
   const handleEdit = (lesson: Lesson) => {
@@ -260,7 +265,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                     ? 'bg-indigo-500 text-white shadow-md' 
                     : 'text-slate-500 hover:bg-white hover:text-indigo-500'
                 }`}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as TabType)}
               >
                   {tab.label}
               </button>

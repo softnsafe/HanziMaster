@@ -1,5 +1,4 @@
 
-
 export type ScriptType = 'Simplified' | 'Traditional';
 
 export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
@@ -73,10 +72,4 @@ export interface GradingResult {
   score: number;
   feedback: string;
   corrections: string[];
-}
-
-declare global {
-  interface Window {
-    HanziWriter: any;
-  }
 }
