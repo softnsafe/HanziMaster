@@ -1,3 +1,5 @@
+/** @jsx React.createElement */
+/** @jsxFrag React.Fragment */
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from './Button';
 

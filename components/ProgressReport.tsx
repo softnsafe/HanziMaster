@@ -1,4 +1,5 @@
-
+/** @jsx React.createElement */
+/** @jsxFrag React.Fragment */
 import React, { useEffect, useState } from 'react';
 import { PracticeRecord, Student, Lesson, StudentAssignment, PracticeMode } from '../types';
 import { Button } from './Button';
