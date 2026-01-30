@@ -1,4 +1,5 @@
-
+/** @jsx React.createElement */
+/** @jsxFrag React.Fragment */
 import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
@@ -48,7 +49,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // Auto-refresh logic for small classes
   useEffect(() => {
-    let interval: any;
+    let interval: any; // Type 'any' used to be compatible with both Node and Browser environments
     
     if (activeTab === 'progress') {
         // Initial load with spinner
