@@ -1,11 +1,12 @@
 
 import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary } from '../types';
 
-const STORAGE_KEY = 'hanzi_master_backend_url';
+// Changing key to v2 forces the app to ignore old cached URLs and use the new ENV_URL
+const STORAGE_KEY = 'hanzi_master_backend_url_v2';
 
 // 1. Check for Environment Variable (Best for Netlify/Vercel deployment)
-// 2. Fallback to empty string (User must configure via UI or Magic Link)
-const ENV_URL = process.env.REACT_APP_BACKEND_URL || ''; 
+// 2. Fallback to the hardcoded URL provided by the user
+const ENV_URL = 'https://script.google.com/macros/s/AKfycbx4Au2YDAhnACTz6x8kbaVlVh7AnqMP40CYsKWPoJnVZ4JXaWITEHqzv0jPAv_zG-Ly/exec'; 
 
 // Helper: Exponential Backoff Fetcher
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {
@@ -29,11 +30,18 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, ba
 export const sheetService = {
   
   getUrl(): string {
+    // Return local storage if present, otherwise use the hardcoded ENV_URL
     return localStorage.getItem(STORAGE_KEY) || ENV_URL;
   },
 
   saveUrl(url: string) {
     let clean = url.trim();
+    
+    // Ensure protocol
+    if (!clean.startsWith('http')) {
+        clean = 'https://' + clean;
+    }
+
     if (clean.includes('/edit')) {
        clean = clean.split('/edit')[0] + '/exec';
     } else if (clean.endsWith('/')) {
@@ -225,6 +233,36 @@ export const sheetService = {
     }
   },
 
+  async deleteAssignment(id: string): Promise<{ success: boolean; message?: string }> {
+    const url = this.getUrl();
+    if (!url) return { success: false, message: "Backend URL is missing." };
+
+    try {
+      const response = await fetchWithRetry(url, {
+        method: 'POST',
+        credentials: 'omit',
+        redirect: 'follow',
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: 'deleteAssignment',
+          payload: { id }
+        })
+      });
+
+      const text = await response.text();
+      let data;
+      try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
+
+      if (data.status === 'success') {
+        return { success: true };
+      } else {
+        return { success: false, message: data.message };
+      }
+    } catch (e: any) {
+      return { success: false, message: "Network connection failed" };
+    }
+  },
+
   async savePracticeRecord(studentName: string, record: PracticeRecord): Promise<void> {
     const url = this.getUrl();
     if (!url) return;
@@ -290,7 +328,8 @@ export const sheetService = {
       if (!url) return { success: false, message: "No URL saved" };
   
       try {
-        const response = await fetchWithRetry(url, {
+        // FAST FETCH: No retries for setup check. Immediate feedback is better.
+        const response = await fetch(url, {
           method: 'POST',
           credentials: 'omit',
           redirect: 'follow',
@@ -307,9 +346,9 @@ export const sheetService = {
             data = JSON.parse(text);
         } catch(e) {
             if (text.includes("<!DOCTYPE html>")) {
-                return { success: false, message: "Permission Error: Deployment access must be 'Anyone'." };
+                return { success: false, message: "Permission Error: Access must be 'Anyone'." };
             }
-            return { success: false, message: "Invalid JSON response" };
+            return { success: false, message: "Invalid response (Check URL)" };
         }
 
         if (data.status === 'error') {
@@ -318,6 +357,9 @@ export const sheetService = {
 
         return { success: true };
       } catch (e: any) {
+        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+            return { success: false, message: "CORS Error. Deployment Access must be 'Anyone'." };
+        }
         return { success: false, message: e.message || "Network error" };
       }
     }

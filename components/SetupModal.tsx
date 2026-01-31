@@ -10,13 +10,14 @@ interface SetupModalProps {
 
 const APPS_SCRIPT_CODE = `
 // CONFIGURATION
-const VERSION = 'v1.41'; // Added Login Logging
+const VERSION = 'v1.42'; // Added Delete Functionality
+// Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
 function getSpreadsheet() {
   if (SHEET_ID) { try { return SpreadsheetApp.openById(SHEET_ID); } catch (e) {} }
   try { var ss = SpreadsheetApp.getActiveSpreadsheet(); if (ss) return ss; } catch (e) {}
-  throw new Error("Could not find the Spreadsheet.");
+  throw new Error("Could not find the Spreadsheet. Please ensuring this script is bound to a Google Sheet.");
 }
 
 function setup() {
@@ -91,7 +92,7 @@ function findColumnIndex(headers, keys) {
 }
 
 function doGet(e) {
-  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.41");
+  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.42");
   const params = e.parameter; const action = params.action;
   try {
       if (action === 'getAssignments') return getAssignments();
@@ -114,6 +115,7 @@ function doPost(e) {
     else if (action === 'saveRecord') return saveRecord(data.payload);
     else if (action === 'createAssignment') return createAssignment(data.payload);
     else if (action === 'editAssignment') return editAssignment(data.payload);
+    else if (action === 'deleteAssignment') return deleteAssignment(data.payload);
     else if (action === 'updateAssignmentStatus') return updateAssignmentStatus(data.payload);
     else if (action === 'seed') return seedData();
     else if (action === 'submitFeedback') return submitFeedback(data.payload);
@@ -128,6 +130,13 @@ function doPost(e) {
 
 function seedData() {
   try { setup(); } catch(e) { return response({ status: 'error', message: 'Setup failed: ' + e.toString() }); }
+  const ss = getSpreadsheet();
+  const assignSheet = ss.getSheetByName('Assignments');
+  if (assignSheet.getLastRow() <= 1) {
+    const today = new Date().toISOString().split('T')[0];
+    assignSheet.appendRow(['w-1', 'Demo Writing', 'Practice writing', '一,二,三', today, today, 'WRITING']);
+    assignSheet.appendRow(['w-2', 'Demo Pinyin', 'Practice tones', '好,吗', today, today, 'PINYIN']);
+  }
   return response({ status: 'success', message: 'Data generated.' });
 }
 
@@ -239,6 +248,27 @@ function editAssignment(payload) {
   let typeIndex = findColumnIndex(headers, ['type', 'assignment type']);
   if (typeIndex > -1) { sheet.getRange(rowIndex, typeIndex + 1).setValue(typeVal); }
   return response({ status: 'success' });
+}
+
+function deleteAssignment(payload) {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('Assignments');
+  if (!sheet) return response({ status: 'error', message: 'Sheet not found' });
+  
+  const data = sheet.getDataRange().getValues();
+  let rowIndex = -1;
+  for(let i=1; i<data.length; i++) {
+      if(String(data[i][0]) === String(payload.id)) {
+          rowIndex = i + 1;
+          break;
+      }
+  }
+  
+  if (rowIndex > -1) {
+      sheet.deleteRow(rowIndex);
+      return response({ status: 'success' });
+  }
+  return response({ status: 'error', message: 'ID not found' });
 }
 
 function getHistory(studentName) {
@@ -380,53 +410,73 @@ function response(data) { return ContentService.createTextOutput(JSON.stringify(
 `;
 
 export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
-  const [url, setUrl] = useState(sheetService.getUrl());
-  const [isSaving, setIsSaving] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isLocked, setIsLocked] = useState(true);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+
+  const [url, setUrl] = useState(sheetService.getUrl() || '');
+  const [isTesting, setIsTesting] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'saved' | 'success' | 'error'>('idle');
   const [statusMsg, setStatusMsg] = useState('');
 
-  const handleSave = async (force: boolean = false) => {
-    setIsSaving(true);
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pin === '4465') {
+        setIsLocked(false);
+    } else {
+        setPinError('Incorrect PIN');
+        setPin('');
+    }
+  };
+
+  // STEP 1: Just Save the URL
+  const handleSaveOnly = () => {
+    if (!url || !url.trim()) {
+       setStatus('error'); setStatusMsg('URL cannot be empty'); return;
+    }
+    const cleanUrl = url.trim();
+    if (!cleanUrl.includes('script.google.com')) {
+       setStatus('error'); setStatusMsg('Invalid URL (must contain script.google.com).'); return;
+    }
+
+    sheetService.saveUrl(cleanUrl);
+    setStatus('saved');
+    setStatusMsg('URL Saved locally! Now click Test Connection.');
+  };
+
+  // STEP 2: Test Connection
+  const handleTestConnection = async () => {
+    const currentUrl = sheetService.getUrl();
+    if (!currentUrl) {
+        setStatus('error'); setStatusMsg('Please save a URL first.'); return;
+    }
+
+    setIsTesting(true);
     setStatus('idle');
     
-    if (!url || !url.trim()) {
-        setStatus('error');
-        setStatusMsg('Please enter a URL.');
-        setIsSaving(false);
-        return;
-    }
-    
-    const cleanUrl = url.trim();
-    
-    if (!cleanUrl.includes('script.google.com')) {
-        setStatus('error');
-        setStatusMsg('Invalid URL (must contain script.google.com).');
-        setIsSaving(false);
-        return;
-    }
-    sheetService.saveUrl(cleanUrl);
-
-    if (force) {
-        setStatus('success');
-        setStatusMsg('Saved without testing.');
-        setTimeout(() => { setIsSaving(false); onClose(); }, 800);
-        return;
-    }
     try {
-        const result = await sheetService.seedSampleData();
+        const timeout = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Connection check timed out.")), 8000);
+        });
+
+        const result: any = await Promise.race([
+            sheetService.seedSampleData(),
+            timeout
+        ]);
+
         if (result.success) {
             setStatus('success');
             setStatusMsg('Connected & Ready!');
-            setTimeout(() => { setIsSaving(false); onClose(); }, 1500);
+            setTimeout(() => { onClose(); }, 1500);
         } else {
             setStatus('error');
             setStatusMsg(result.message || 'Connection failed');
-            setIsSaving(false);
         }
-    } catch (e) {
+    } catch (e: any) {
         setStatus('error');
-        setStatusMsg("Unexpected error");
-        setIsSaving(false);
+        setStatusMsg(e.message || "Connection Error");
+    } finally {
+        setIsTesting(false);
     }
   };
 
@@ -435,12 +485,43 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
     alert('Code copied!');
   };
 
+  if (isLocked) {
+      return (
+         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+             <div className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-sm w-full text-center border border-slate-200">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">🔒</div>
+                <h2 className="text-2xl font-extrabold text-slate-800 mb-2">Admin Access</h2>
+                <p className="text-slate-500 font-bold text-sm mb-6">Enter PIN to configure backend.</p>
+                
+                <form onSubmit={handleUnlock} className="space-y-4">
+                    <input 
+                        type="password"
+                        inputMode="numeric" 
+                        autoFocus
+                        value={pin}
+                        onChange={(e) => { setPin(e.target.value); setPinError(''); }}
+                        className="w-full px-4 py-4 rounded-xl border-2 border-slate-200 text-center font-extrabold text-2xl tracking-[0.5em] outline-none focus:border-indigo-400 focus:bg-indigo-50 transition-colors"
+                        placeholder="••••"
+                        maxLength={4}
+                    />
+                    {pinError && <div className="text-rose-500 font-bold text-sm bg-rose-50 py-2 rounded-lg">{pinError}</div>}
+                    
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                        <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                        <Button type="submit">Unlock</Button>
+                    </div>
+                </form>
+             </div>
+         </div>
+      );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
            <div>
-             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.41)</h2>
+             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.42)</h2>
              <p className="text-sm text-slate-500 font-bold">Connect your Google Sheet</p>
            </div>
            <button onClick={onClose} className="text-slate-400 hover:text-slate-600" type="button">
@@ -448,7 +529,6 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
            </button>
         </div>
 
-        {/* Replaced form with div to prevent browser validation */}
         <div className="flex flex-col flex-1 overflow-hidden">
             <div className="p-6 overflow-y-auto flex-1 space-y-8">
                 <section>
@@ -458,7 +538,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                     </div>
                     <div className="pl-11 space-y-4">
                         <p className="text-sm text-slate-600">
-                            Copy the new code below (v1.41). <br/>
+                            Copy the new code below (v1.42). <br/>
                             <strong>Important:</strong> You must create a new deployment after pasting this code.
                         </p>
                         <div className="relative">
@@ -484,19 +564,23 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                         <h3 className="font-bold text-slate-800">Connect Backend</h3>
                     </div>
                     <div className="pl-11">
-                        <input 
-                            type="text" 
-                            value={url}
-                            onChange={(e) => setUrl(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    handleSave(false);
-                                }
-                            }}
-                            placeholder="Paste Web App URL here..."
-                            className="w-full px-5 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-mono text-sm"
-                            autoComplete="off"
-                        />
+                        <div className="flex gap-2">
+                             <input 
+                                type="text" 
+                                value={url}
+                                onChange={(e) => {
+                                    setUrl(e.target.value);
+                                    if (status !== 'saved') setStatus('idle');
+                                }}
+                                placeholder="Paste Web App URL here..."
+                                className="flex-1 px-5 py-3 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-mono text-sm"
+                                autoComplete="off"
+                            />
+                            <Button onClick={handleSaveOnly} type="button" variant={status === 'saved' ? 'secondary' : 'primary'}>
+                                {status === 'saved' ? 'Saved' : 'Save URL'}
+                            </Button>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 font-bold ml-1">Step 1: Save the URL. Step 2: Test Connection.</p>
                     </div>
                 </section>
             </div>
@@ -504,22 +588,26 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col gap-4">
                 {status !== 'idle' && (
                     <div className={`text-sm px-4 py-3 rounded-xl font-bold flex justify-between items-center ${
-                        status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                        status === 'success' ? 'bg-emerald-100 text-emerald-700' : 
+                        status === 'saved' ? 'bg-indigo-100 text-indigo-700' :
+                        'bg-rose-100 text-rose-700'
                     }`}>
                         <span>{statusMsg}</span>
-                        {status === 'error' && (
-                            <button onClick={() => handleSave(true)} type="button" className="underline ml-2">Save Anyway</button>
-                        )}
                     </div>
                 )}
+                
                 <div className="flex justify-end gap-3">
-                    <Button variant="ghost" onClick={onClose} type="button">Cancel</Button>
+                    <Button variant="ghost" onClick={onClose} type="button">Close</Button>
+                    
+                    {/* Test Connection - Enabled only if saved or URL present */}
                     <Button 
-                        onClick={() => handleSave(false)} 
+                        onClick={handleTestConnection} 
                         type="button" 
-                        isLoading={isSaving}
+                        isLoading={isTesting}
+                        disabled={!url || status === 'error' && !url} // allow retry if error
+                        className={status === 'saved' ? 'animate-pulse' : ''}
                     >
-                        {isSaving ? 'Testing...' : 'Save & Connect'}
+                        Test Connection
                     </Button>
                 </div>
             </div>

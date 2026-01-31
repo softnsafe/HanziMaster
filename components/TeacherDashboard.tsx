@@ -42,6 +42,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   
   // Assignments List State
   const [assignments, setAssignments] = useState<Lesson[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   
   // Theme State
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
@@ -111,6 +112,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setLastSuccess('');
       setLastError('');
       setActiveTab('create');
+  };
+  
+  const handleDelete = async (id: string) => {
+      if (!window.confirm("Are you sure you want to delete this assignment?")) return;
+      
+      setDeletingId(id);
+      const result = await sheetService.deleteAssignment(id);
+      setDeletingId(null);
+      
+      if (result.success) {
+          setLastSuccess("Assignment deleted.");
+          loadAssignments(); // refresh list
+      } else {
+          setLastError("Failed to delete: " + result.message);
+      }
   };
 
   const handleCancelEdit = () => {
@@ -340,13 +356,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
                 <div>
                     <label className="block text-sm font-bold text-slate-500 uppercase mb-2">Homework Type</label>
-                    <div className="grid grid-cols-3 gap-3">
+                    {/* SIMPLIFIED FOR DEBUGGING: ONLY WRITING ALLOWED */}
+                    <div className="grid grid-cols-1 gap-3">
                          <div 
                            onClick={() => setType('WRITING')} 
                            className={`cursor-pointer border-2 rounded-2xl p-4 text-center font-bold transition-all ${type === 'WRITING' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-500 hover:border-indigo-200'}`}
                          >
-                            ✍️ Writing
+                            ✍️ Writing Only (Debug Mode)
                          </div>
+                         {/* HIDDEN FOR DEBUGGING 
                          <div 
                            onClick={() => setType('PINYIN')} 
                            className={`cursor-pointer border-2 rounded-2xl p-4 text-center font-bold transition-all ${type === 'PINYIN' ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-100 text-slate-500 hover:border-sky-200'}`}
@@ -359,21 +377,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                          >
                             🧩 Fill Blank
                          </div>
+                         */}
                     </div>
                 </div>
 
                 <div>
                     <label className="block text-sm font-bold text-slate-500 uppercase mb-2">
-                        {type === 'FILL_IN_BLANKS' ? 'Quiz Items (One per line)' : 'Characters to Practice'}
+                         Characters to Practice
                     </label>
                     <textarea 
                         required
                         value={chars}
                         onChange={e => setChars(e.target.value)}
-                        placeholder={type === 'FILL_IN_BLANKS' ? "Example:\n你好_! # 吗\n我_欢吃苹果 # 喜" : "Type Chinese characters separated by space (e.g. 红 橙 黄 绿)"}
+                        placeholder={"Type Chinese characters separated by space (e.g. 红 橙 黄 绿)"}
                         className="w-full px-5 py-4 h-48 rounded-2xl border-2 border-slate-100 focus:border-indigo-400 outline-none font-serif-sc text-xl"
                     />
-                    {type === 'FILL_IN_BLANKS' && <p className="text-xs text-slate-400 mt-2">Format: Question with blank ( _ ) # Answer</p>}
                 </div>
 
                 <Button type="submit" isLoading={isSubmitting} className="w-full py-4 text-lg">
@@ -435,13 +453,23 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                                      </div>
                                  </td>
                                  <td className="p-4 text-right">
-                                     <button 
-                                        onClick={() => handleEdit(a)}
-                                        className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-all"
-                                        title="Edit Assignment"
-                                     >
-                                        ✏️
-                                     </button>
+                                    <div className="flex justify-end gap-2">
+                                         <button 
+                                            onClick={() => handleEdit(a)}
+                                            className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-all"
+                                            title="Edit Assignment"
+                                         >
+                                            ✏️
+                                         </button>
+                                         <button 
+                                            onClick={() => handleDelete(a.id)}
+                                            disabled={deletingId === a.id}
+                                            className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white border-2 border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition-all"
+                                            title="Delete Assignment"
+                                         >
+                                            {deletingId === a.id ? '...' : '🗑️'}
+                                         </button>
+                                    </div>
                                  </td>
                              </tr>
                          )})}

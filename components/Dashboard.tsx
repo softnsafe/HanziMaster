@@ -214,6 +214,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                          </div>
                      </div>
 
+                     {/* DEBUG MODE: Hiding other options to isolate issue */}
+                     {/*
                      <div 
                         onClick={() => setSelectedMode('PINYIN')}
                         className="group relative bg-white rounded-[2.5rem] p-8 shadow-xl border-4 border-transparent hover:border-sky-100 transition-all cursor-pointer hover:-translate-y-1 overflow-hidden"
@@ -241,6 +243,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                              <p className="text-slate-500 font-bold text-sm">Vocab & grammar.</p>
                          </div>
                      </div>
+                     */}
                  </div>
              )}
 
