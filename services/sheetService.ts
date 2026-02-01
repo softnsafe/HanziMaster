@@ -6,7 +6,7 @@ const STORAGE_KEY = 'hanzi_master_backend_url_v2';
 
 // 1. Check for Environment Variable (Best for Netlify/Vercel deployment)
 // 2. Fallback to the hardcoded URL provided by the user
-const ENV_URL = 'https://script.google.com/macros/s/AKfycbx4Au2YDAhnACTz6x8kbaVlVh7AnqMP40CYsKWPoJnVZ4JXaWITEHqzv0jPAv_zG-Ly/exec'; 
+const ENV_URL = process.env.REACT_APP_BACKEND_URL || 'https://script.google.com/macros/s/AKfycbx4Au2YDAhnACTz6x8kbaVlVh7AnqMP40CYsKWPoJnVZ4JXaWITEHqzv0jPAv_zG-Ly/exec'; 
 
 // Helper: Exponential Backoff Fetcher
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {

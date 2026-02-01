@@ -581,7 +581,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
             </div>
         </div>
       )}
-
     </div>
   );
 };

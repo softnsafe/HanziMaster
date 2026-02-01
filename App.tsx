@@ -39,6 +39,7 @@ const App: React.FC = () => {
   // UI State
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  
   // Initialize with existence check so it starts as "Online" if hardcoded URL exists
   const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl());
 
@@ -434,6 +435,12 @@ const App: React.FC = () => {
       </div>
 
       <SupportWidget />
+
+      {/* MODALS */}
+      {showSetup && <SetupModal onClose={() => {
+            setShowSetup(false);
+            setIsConfigured(!!sheetService.getUrl());
+      }} />}
     </div>
   );
 
