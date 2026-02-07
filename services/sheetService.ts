@@ -1,15 +1,47 @@
 
-import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary } from '../types';
+import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary, LoginLog } from '../types';
 
 // Changing key to v2 forces the app to ignore old cached URLs and use the new ENV_URL
 const STORAGE_KEY = 'hanzi_master_backend_url_v2';
 
 // 1. Check for Environment Variable (Best for Netlify/Vercel deployment)
-// 2. Fallback to the hardcoded URL provided by the user
-const ENV_URL = process.env.REACT_APP_BACKEND_URL || 'https://script.google.com/macros/s/AKfycbx4Au2YDAhnACTz6x8kbaVlVh7AnqMP40CYsKWPoJnVZ4JXaWITEHqzv0jPAv_zG-Ly/exec'; 
+// 2. Fallback: Empty string. (Previously a hardcoded URL was here, but it caused errors when invalid).
+const ENV_URL = process.env.REACT_APP_BACKEND_URL || ''; 
+
+// --- CACHING LAYER ---
+interface CacheEntry<T> {
+    data: T;
+    timestamp: number;
+}
+// Cache TTL: 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;
+const cache: Record<string, CacheEntry<any>> = {};
+
+const getFromCache = <T>(key: string): T | null => {
+    const entry = cache[key];
+    if (entry && (Date.now() - entry.timestamp < CACHE_TTL)) {
+        return entry.data;
+    }
+    return null;
+};
+
+const setCache = (key: string, data: any) => {
+    cache[key] = { timestamp: Date.now(), data };
+};
+
+const invalidateCache = (keyPattern: string) => {
+    Object.keys(cache).forEach(k => {
+        if (k.includes(keyPattern)) delete cache[k];
+    });
+};
+// ---------------------
 
 // Helper: Exponential Backoff Fetcher
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new Error("No internet connection");
+    }
+
     try {
         const response = await fetch(url, options);
         // If server is busy (503) or generic error (500), throw to retry
@@ -19,7 +51,15 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, ba
         return response;
     } catch (err) {
         if (retries > 0) {
-            console.warn(`Request failed, retrying in ${backoff}ms... (${retries} left)`);
+            // Only warn if it's not a cancellation
+            if ((err as Error).name !== 'AbortError') {
+                 // Use debug for first retry to keep console cleaner, warn only on subsequent attempts
+                 if (retries === 3) {
+                    console.debug(`Request failed, retrying in ${backoff}ms...`);
+                 } else {
+                    console.warn(`Request failed, retrying in ${backoff}ms... (${retries} left)`);
+                 }
+            }
             await new Promise(resolve => setTimeout(resolve, backoff));
             return fetchWithRetry(url, options, retries - 1, backoff * 2); // Double the wait time
         }
@@ -48,6 +88,40 @@ export const sheetService = {
        clean = clean.slice(0, -1);
     }
     localStorage.setItem(STORAGE_KEY, clean);
+    // Clear cache on URL change to avoid stale data from old sheet
+    Object.keys(cache).forEach(key => delete cache[key]);
+  },
+
+  clearAllCache() {
+      Object.keys(cache).forEach(key => delete cache[key]);
+  },
+
+  async checkConnection(): Promise<{ success: boolean; message?: string }> {
+      const url = this.getUrl();
+      if (!url) return { success: false, message: "No URL saved" };
+
+      try {
+          const response = await fetch(`${url}?action=health`, {
+             method: 'GET',
+             credentials: 'omit',
+             redirect: 'follow'
+          });
+          const text = await response.text();
+          try {
+              const data = JSON.parse(text);
+              if (data.status === 'success') {
+                  return { success: true, message: `Connected (v${data.version})` };
+              }
+          } catch(e) {
+              if (text.includes("<!DOCTYPE html>")) return { success: false, message: "Permission Error. Access must be 'Anyone'."};
+          }
+          return { success: false, message: "Invalid response from script." };
+      } catch (e: any) {
+          if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+              return { success: false, message: "CORS Error. Access must be 'Anyone'." };
+          }
+          return { success: false, message: e.message };
+      }
   },
 
   async loginStudent(student: Student): Promise<{ success: boolean; message?: string; student?: Student }> {
@@ -59,7 +133,7 @@ export const sheetService = {
         method: 'POST',
         credentials: 'omit', 
         redirect: 'follow',
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: 'login',
           payload: student
@@ -86,7 +160,13 @@ export const sheetService = {
     }
   },
 
-  async getAssignments(): Promise<Lesson[]> {
+  async getAssignments(forceRefresh = false): Promise<Lesson[]> {
+    const cacheKey = 'assignments';
+    if (!forceRefresh) {
+        const cached = getFromCache<Lesson[]>(cacheKey);
+        if (cached) return cached;
+    }
+
     const url = this.getUrl();
     if (!url) {
       return [
@@ -101,7 +181,7 @@ export const sheetService = {
     }
 
     try {
-      // Add timestamp to prevent caching
+      // Add timestamp to prevent caching at browser network layer
       const response = await fetchWithRetry(`${url}?action=getAssignments&_t=${Date.now()}`, {
         credentials: 'omit',
         redirect: 'follow'
@@ -114,6 +194,7 @@ export const sheetService = {
           type: l.type || 'WRITING'
       }));
       
+      setCache(cacheKey, lessons);
       return lessons;
     } catch (e) {
       console.error("Fetch Assignments Error:", e);
@@ -121,7 +202,13 @@ export const sheetService = {
     }
   },
 
-  async getAssignmentStatuses(studentId: string): Promise<StudentAssignment[]> {
+  async getAssignmentStatuses(studentId: string, forceRefresh = false): Promise<StudentAssignment[]> {
+    const cacheKey = `statuses_${studentId}`;
+    if (!forceRefresh) {
+        const cached = getFromCache<StudentAssignment[]>(cacheKey);
+        if (cached) return cached;
+    }
+
     const url = this.getUrl();
     if (!url) return [];
 
@@ -131,13 +218,23 @@ export const sheetService = {
         redirect: 'follow'
       });
       const data = await response.json();
-      return data.statuses || [];
+      const statuses = data.statuses || [];
+      setCache(cacheKey, statuses);
+      return statuses;
     } catch (e) {
       return [];
     }
   },
 
-  async getAllStudentProgress(): Promise<StudentSummary[]> {
+  async getAllStudentProgress(forceRefresh = false): Promise<StudentSummary[]> {
+    // Teacher data usually shouldn't be cached too long, or at all if they want live updates.
+    // But to prevent errors on quick tab switching, we cache it briefly.
+    const cacheKey = 'all_student_progress';
+    if (!forceRefresh) {
+        const cached = getFromCache<StudentSummary[]>(cacheKey);
+        if (cached) return cached;
+    }
+
     const url = this.getUrl();
     if (!url) return [];
 
@@ -147,8 +244,35 @@ export const sheetService = {
         redirect: 'follow'
       });
       const data = await response.json();
-      return data.students || [];
+      const students = data.students || [];
+      setCache(cacheKey, students);
+      return students;
     } catch (e) {
+      return [];
+    }
+  },
+
+  async getLoginLogs(forceRefresh = false): Promise<LoginLog[]> {
+    const cacheKey = 'login_logs';
+    if (!forceRefresh) {
+        const cached = getFromCache<LoginLog[]>(cacheKey);
+        if (cached) return cached;
+    }
+
+    const url = this.getUrl();
+    if (!url) return [];
+
+    try {
+      const response = await fetchWithRetry(`${url}?action=getLoginLogs&_t=${Date.now()}`, {
+        credentials: 'omit',
+        redirect: 'follow'
+      });
+      const data = await response.json();
+      const logs = data.logs || [];
+      setCache(cacheKey, logs);
+      return logs;
+    } catch (e) {
+      console.error("Fetch Logs Error", e);
       return [];
     }
   },
@@ -162,12 +286,16 @@ export const sheetService = {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
-        headers: { "Content-Type": "text/plain" },
+        keepalive: true, // Critical for updates during navigation/unmount
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: 'updateAssignmentStatus',
           payload: { studentId, assignmentId, status }
         })
       });
+      // Invalidate relevant caches
+      invalidateCache(`statuses_${studentId}`);
+      invalidateCache('all_student_progress');
     } catch (e) {
       console.error("Update Status Error:", e);
     }
@@ -194,6 +322,7 @@ export const sheetService = {
       try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
 
       if (data.status === 'success') {
+        invalidateCache('assignments'); // Clear assignment cache
         return { success: true };
       } else {
         return { success: false, message: data.message };
@@ -224,6 +353,7 @@ export const sheetService = {
       try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
 
       if (data.status === 'success') {
+        invalidateCache('assignments');
         return { success: true };
       } else {
         return { success: false, message: data.message };
@@ -254,6 +384,7 @@ export const sheetService = {
       try { data = JSON.parse(text); } catch (e) { return { success: false, message: "Server Error" }; }
 
       if (data.status === 'success') {
+        invalidateCache('assignments');
         return { success: true };
       } else {
         return { success: false, message: data.message };
@@ -272,7 +403,8 @@ export const sheetService = {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
-        headers: { "Content-Type": "text/plain" },
+        keepalive: true, // Critical for updates during navigation/unmount
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: 'saveRecord',
           payload: {
@@ -281,12 +413,23 @@ export const sheetService = {
           }
         })
       });
+      // Invalidate history cache so if they view report immediately it is somewhat fresh (though reports often lag slightly)
+      // Note: We typically don't strictly need to invalidate history if we only save on completion,
+      // but if we ever save partials, this helps.
+      invalidateCache(`history_${studentName}`);
+      invalidateCache('all_student_progress');
     } catch (e) {
       console.error("Save Record Error:", e);
     }
   },
 
-  async getStudentHistory(studentName: string): Promise<PracticeRecord[]> {
+  async getStudentHistory(studentName: string, forceRefresh = false): Promise<PracticeRecord[]> {
+    const cacheKey = `history_${studentName}`;
+    if (!forceRefresh) {
+        const cached = getFromCache<PracticeRecord[]>(cacheKey);
+        if (cached) return cached;
+    }
+
     const url = this.getUrl();
     if (!url) return [];
 
@@ -296,7 +439,9 @@ export const sheetService = {
         redirect: 'follow'
       });
       const data = await response.json();
-      return data.records || [];
+      const records = data.records || [];
+      setCache(cacheKey, records);
+      return records;
     } catch (e) {
       return [];
     }
@@ -311,7 +456,7 @@ export const sheetService = {
         method: 'POST',
         credentials: 'omit',
         redirect: 'follow',
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: 'submitFeedback',
           payload: { name, email, message }
@@ -324,43 +469,7 @@ export const sheetService = {
   },
 
   async seedSampleData(): Promise<{ success: boolean; message?: string }> {
-      const url = this.getUrl();
-      if (!url) return { success: false, message: "No URL saved" };
-  
-      try {
-        // FAST FETCH: No retries for setup check. Immediate feedback is better.
-        const response = await fetch(url, {
-          method: 'POST',
-          credentials: 'omit',
-          redirect: 'follow',
-          headers: { "Content-Type": "text/plain" },
-          body: JSON.stringify({
-            action: 'seed',
-            payload: {}
-          })
-        });
-
-        const text = await response.text();
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch(e) {
-            if (text.includes("<!DOCTYPE html>")) {
-                return { success: false, message: "Permission Error: Access must be 'Anyone'." };
-            }
-            return { success: false, message: "Invalid response (Check URL)" };
-        }
-
-        if (data.status === 'error') {
-            return { success: false, message: data.message };
-        }
-
-        return { success: true };
-      } catch (e: any) {
-        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
-            return { success: false, message: "CORS Error. Deployment Access must be 'Anyone'." };
-        }
-        return { success: false, message: e.message || "Network error" };
-      }
-    }
+      // Legacy support using the old action, or just verify functionality
+      return this.checkConnection();
+  }
 };

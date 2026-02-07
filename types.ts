@@ -22,13 +22,14 @@ export interface StudentSummary {
   id: string;
   name: string;
   assignmentsCompleted: number;
-  completedWriting?: number; // New
-  completedPinyin?: number;  // New
-  completedBoth?: number;    // New
+  assignmentsInProgress: number; // New field for tracking active work
+  completedWriting?: number; 
+  completedPinyin?: number;  
+  completedFillBlank?: number; // Specific tracker for Sentence Builder
   averageScore: number;
   lastActive: string;
   totalPracticed: number;
-  script?: string; // Added script tracking
+  script?: string; 
 }
 
 export interface PracticeRecord {
@@ -56,6 +57,13 @@ export interface Flashcard {
   pinyin: string; // Numbered: ni3
   definition: string;
   emoji: string; // Acts as the 'Picture'
+}
+
+export interface LoginLog {
+  timestamp: string;
+  studentId: string;
+  name: string;
+  action: string;
 }
 
 export enum AppView {

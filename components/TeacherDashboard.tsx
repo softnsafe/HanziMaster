@@ -1,9 +1,10 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
-import { Lesson, StudentSummary } from '../types';
+import { Lesson, StudentSummary, LoginLog } from '../types';
 import { generateLobbyBackground } from '../services/geminiService';
 
 interface TeacherDashboardProps {
@@ -13,7 +14,7 @@ interface TeacherDashboardProps {
   onResetTheme: () => void;
 }
 
-type TabType = 'create' | 'progress' | 'assignments';
+type TabType = 'create' | 'progress' | 'assignments' | 'logs';
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup, onUpdateTheme, onResetTheme }) => {
   const [activeTab, setActiveTab] = useState<TabType>('create');
@@ -44,40 +45,56 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   
+  // Logs State
+  const [logs, setLogs] = useState<LoginLog[]>([]);
+
   // Theme State
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // Auto-refresh logic for small classes
+  // Polling Refs
+  const isPolling = useRef(false);
+  const pollTimeout = useRef<number | undefined>(undefined);
+
+  // Clear polling on unmount or tab change
   useEffect(() => {
-    let intervalId: number | undefined; 
-    
-    if (activeTab === 'progress') {
-        // Initial load
-        const loadProgress = async () => {
-             try {
+      // Cleanup previous poll if any
+      clearTimeout(pollTimeout.current);
+      isPolling.current = false;
+
+      // Start new Poll routine based on tab
+      const startPoll = async () => {
+          // Avoid overlapping calls
+          if (isPolling.current) return;
+          isPolling.current = true;
+
+          try {
+             if (activeTab === 'progress') {
                 const data = await sheetService.getAllStudentProgress();
                 setStudentData(data);
-             } catch (e) { console.error(e); }
-        };
-        loadProgress();
-        
-        // Silent auto-refresh every 10 seconds (Live Mode)
-        intervalId = window.setInterval(loadProgress, 10000);
-        
-    } else if (activeTab === 'assignments') {
-        const loadAssignments = async () => {
-            try {
+             } else if (activeTab === 'assignments') {
                 const data = await sheetService.getAssignments();
                 setAssignments(data.filter(l => l.id !== 'mock-1'));
-            } catch (e) { console.error(e); }
-        };
-        loadAssignments();
-    }
-    
-    return () => {
-        if (intervalId) window.clearInterval(intervalId);
-    };
+             } else if (activeTab === 'logs') {
+                const data = await sheetService.getLoginLogs();
+                setLogs(data);
+             }
+          } catch(e) {
+             console.error("Poll failed", e);
+          } finally {
+             isPolling.current = false;
+             // Schedule next poll only if still on the same tab
+             pollTimeout.current = window.setTimeout(startPoll, 10000); 
+          }
+      };
+
+      // Initial Call
+      startPoll();
+
+      return () => {
+          clearTimeout(pollTimeout.current);
+          isPolling.current = false;
+      };
   }, [activeTab]);
 
   const loadProgress = async (silent = false) => {
@@ -85,13 +102,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
         const data = await sheetService.getAllStudentProgress();
         setStudentData(data);
       } catch (e) {
-        console.error("Auto-refresh failed", e);
+        console.error("Manual refresh failed", e);
       }
   };
 
   const loadAssignments = async () => {
       const data = await sheetService.getAssignments();
       setAssignments(data.filter(l => l.id !== 'mock-1'));
+  };
+
+  const loadLogs = async () => {
+      const data = await sheetService.getLoginLogs();
+      setLogs(data);
   };
 
   const handleEdit = (lesson: Lesson) => {
@@ -151,12 +173,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
         // Parse line by line
         charArray = chars.split('\n')
             .map(line => line.trim())
-            .filter(line => line.length > 0 && line.includes('#'))
+            .filter(line => line.length > 0)
             // Sanitize commas
             .map(line => line.replace(/,/g, '，')); 
         
-        if (charArray.length === 0) {
-            setLastError("Invalid format. Please use: 'Question # Answer' per line.");
+        // Validation for new format: Must contain #
+        const valid = charArray.every(line => line.includes('#'));
+
+        if (!valid || charArray.length === 0) {
+            setLastError("Invalid format. Please use 'Word # Word # Word' to separate blocks.");
             setIsSubmitting(false);
             return;
         }
@@ -235,7 +260,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
         return <span className="inline-block px-3 py-1 bg-sky-100 text-sky-700 rounded-full text-xs font-extrabold uppercase tracking-wide border border-sky-200">Pinyin</span>;
     }
     if (normalized === 'FILL_IN_BLANKS') {
-        return <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-extrabold uppercase tracking-wide border border-purple-200">Fill Blank</span>;
+        return <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-extrabold uppercase tracking-wide border border-purple-200">Sentence Builder</span>;
     }
     return <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-extrabold uppercase tracking-wide border border-indigo-200">Writing</span>;
   };
@@ -268,15 +293,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 p-1 bg-white/50 rounded-2xl border border-white backdrop-blur">
+      <div className="flex gap-2 p-1 bg-white/50 rounded-2xl border border-white backdrop-blur overflow-x-auto">
           {[
               { id: 'create', label: editingId ? '✏️ Edit Homework' : '✨ Create Homework' },
               { id: 'assignments', label: '📋 View Assignments' },
-              { id: 'progress', label: '📊 Student Progress' }
+              { id: 'progress', label: '📊 Student Progress' },
+              { id: 'logs', label: '🕒 Login Logs' }
           ].map(tab => (
               <button 
                 key={tab.id}
-                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                className={`flex-1 min-w-[140px] py-3 rounded-xl font-bold transition-all ${
                     activeTab === tab.id 
                     ? 'bg-indigo-500 text-white shadow-md' 
                     : 'text-slate-500 hover:bg-white hover:text-indigo-500'
@@ -356,40 +382,52 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
                 <div>
                     <label className="block text-sm font-bold text-slate-500 uppercase mb-2">Homework Type</label>
-                    {/* SIMPLIFIED FOR DEBUGGING: ONLY WRITING ALLOWED */}
-                    <div className="grid grid-cols-1 gap-3">
-                         <div 
-                           onClick={() => setType('WRITING')} 
-                           className={`cursor-pointer border-2 rounded-2xl p-4 text-center font-bold transition-all ${type === 'WRITING' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-500 hover:border-indigo-200'}`}
-                         >
-                            ✍️ Writing Only (Debug Mode)
-                         </div>
-                         {/* HIDDEN FOR DEBUGGING 
-                         <div 
-                           onClick={() => setType('PINYIN')} 
-                           className={`cursor-pointer border-2 rounded-2xl p-4 text-center font-bold transition-all ${type === 'PINYIN' ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-100 text-slate-500 hover:border-sky-200'}`}
-                         >
-                            🗣️ Pinyin
-                         </div>
-                         <div 
-                           onClick={() => setType('FILL_IN_BLANKS')} 
-                           className={`cursor-pointer border-2 rounded-2xl p-4 text-center font-bold transition-all ${type === 'FILL_IN_BLANKS' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-100 text-slate-500 hover:border-purple-200'}`}
-                         >
-                            🧩 Fill Blank
-                         </div>
-                         */}
+                    <div className="relative">
+                        <select
+                            value={type}
+                            onChange={(e) => setType(e.target.value as any)}
+                            className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 focus:border-indigo-400 outline-none font-bold text-slate-700 appearance-none bg-white cursor-pointer"
+                        >
+                            <option value="WRITING">✍️ Writing Practice</option>
+                            <option value="PINYIN">🗣️ Pinyin Practice</option>
+                            <option value="FILL_IN_BLANKS">🧩 Sentence Builder</option>
+                        </select>
+                        <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            ▼
+                        </div>
                     </div>
                 </div>
 
                 <div>
-                    <label className="block text-sm font-bold text-slate-500 uppercase mb-2">
-                         Characters to Practice
-                    </label>
+                    <div className="flex justify-between items-end mb-2">
+                        <label className="block text-sm font-bold text-slate-500 uppercase">
+                             {type === 'FILL_IN_BLANKS' ? 'Sentences' : 'Characters to Practice'}
+                        </label>
+                        {type === 'FILL_IN_BLANKS' && (
+                             <button
+                                type="button"
+                                onClick={() => setChars("我#有#一本#書。?你#有#幾本?\n我#是#學生。")}
+                                className="text-xs font-bold text-indigo-500 hover:text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg transition-colors border border-indigo-100"
+                             >
+                                 ✨ Load Example Data
+                             </button>
+                        )}
+                    </div>
+                    {type === 'FILL_IN_BLANKS' && (
+                        <p className="text-xs text-slate-400 mb-2">
+                            Format: Use <code>#</code> to separate Lego blocks. <br/>
+                            Example: <code>我 # 有 # 一本 # 書。</code> will create blocks for [我] [有] [一本] [書。]
+                        </p>
+                    )}
                     <textarea 
                         required
                         value={chars}
                         onChange={e => setChars(e.target.value)}
-                        placeholder={"Type Chinese characters separated by space (e.g. 红 橙 黄 绿)"}
+                        placeholder={
+                            type === 'FILL_IN_BLANKS' 
+                            ? "我 # 喜欢 # 吃 # 苹果。\n她 # 是 # 老师。" 
+                            : "Type Chinese characters separated by space (e.g. 红 橙 黄 绿)"
+                        }
                         className="w-full px-5 py-4 h-48 rounded-2xl border-2 border-slate-100 focus:border-indigo-400 outline-none font-serif-sc text-xl"
                     />
                 </div>
@@ -512,8 +550,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                          <tr>
                              <th className="p-4 text-left rounded-l-xl">Name</th>
                              <th className="p-4 text-center">Avg. Score</th>
-                             <th className="p-4 text-center">Breakdown (Completed)</th>
-                             <th className="p-4 text-center rounded-r-xl">Total Assignments</th>
+                             <th className="p-4 text-center">Activity</th>
+                             <th className="p-4 text-center rounded-r-xl">Completed</th>
                          </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
@@ -523,14 +561,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                                  <td className="p-4 text-center font-bold text-indigo-600">{s.averageScore}%</td>
                                  <td className="p-4 text-center">
                                      <div className="flex items-center justify-center gap-3">
+                                         {/* Completed Breakdown */}
                                          {(s.completedWriting || 0) > 0 && (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold border border-indigo-100" title="Writing">
                                                 ✍️ {s.completedWriting}
                                             </span>
                                          )}
-                                         {(s.completedPinyin || 0) > 0 && (
-                                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-sky-50 text-sky-600 rounded-lg text-xs font-bold border border-sky-100" title="Pinyin">
-                                                🗣️ {s.completedPinyin}
+                                         
+                                         {/* In Progress */}
+                                         {s.assignmentsInProgress > 0 && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-xs font-bold border border-amber-100" title="In Progress">
+                                                ⏳ {s.assignmentsInProgress}
                                             </span>
                                          )}
                                      </div>
@@ -546,6 +587,52 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                  </table>
              </div>
          </div>
+      )}
+
+      {/* LOGIN LOGS TAB */}
+      {activeTab === 'logs' && (
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-indigo-50">
+               <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-xl font-extrabold text-slate-800">Login Activity</h2>
+                 <Button variant="outline" onClick={loadLogs}>Refresh</Button>
+               </div>
+               
+               <div className="overflow-x-auto">
+                 <table className="w-full">
+                     <thead className="bg-slate-50 text-slate-500 text-sm font-bold uppercase">
+                         <tr>
+                             <th className="p-4 text-left rounded-l-xl">Time</th>
+                             <th className="p-4 text-left">Student Name</th>
+                             <th className="p-4 text-left rounded-r-xl">Action</th>
+                         </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                         {logs.map((log, idx) => (
+                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                 <td className="p-4 text-sm font-mono text-slate-500">
+                                     {new Date(log.timestamp).toLocaleString()}
+                                 </td>
+                                 <td className="p-4 font-bold text-slate-800">
+                                     {log.name}
+                                 </td>
+                                 <td className="p-4">
+                                     <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wide">
+                                         {log.action}
+                                     </span>
+                                 </td>
+                             </tr>
+                         ))}
+                         {logs.length === 0 && (
+                             <tr>
+                                 <td colSpan={3} className="p-8 text-center text-slate-400 font-bold">
+                                     No login activity recorded yet.
+                                 </td>
+                             </tr>
+                         )}
+                     </tbody>
+                 </table>
+               </div>
+          </div>
       )}
 
       {/* Theme Preview Modal */}

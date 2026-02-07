@@ -1,3 +1,4 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useEffect, useState } from 'react';
@@ -12,31 +13,43 @@ interface DashboardProps {
   onStartPractice: (lesson: Lesson, mode: PracticeMode) => void;
   onViewReport: () => void;
   onLogout: () => void;
+  onRefreshData?: () => Promise<void>; // New prop for App-level refresh
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartPractice, onViewReport, onLogout }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartPractice, onViewReport, onLogout, onRefreshData }) => {
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [statuses, setStatuses] = useState<StudentAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMode, setSelectedMode] = useState<PracticeMode | null>(null);
 
+  const loadData = async (forceRefresh = false) => {
+    setIsLoading(true);
+    // Artificial delay (optional) to let the animation show for at least 800ms prevents flickering
+    const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
+    
+    const [lessons, statusList] = await Promise.all([
+        sheetService.getAssignments(forceRefresh),
+        sheetService.getAssignmentStatuses(student.id, forceRefresh),
+        minLoadTime
+    ]);
+    setAssignments(lessons);
+    setStatuses(statusList);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      // Artificial delay (optional) to let the animation show for at least 800ms prevents flickering
-      const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
-      
-      const [lessons, statusList] = await Promise.all([
-         sheetService.getAssignments(),
-         sheetService.getAssignmentStatuses(student.id),
-         minLoadTime
-      ]);
-      setAssignments(lessons);
-      setStatuses(statusList);
-      setIsLoading(false);
-    };
     loadData();
   }, [student.id]);
+
+  const handleRefresh = async () => {
+      setIsLoading(true);
+      if (onRefreshData) {
+          // Sync History from App level (this updates 'records' prop)
+          await onRefreshData();
+      }
+      // Sync assignments and status locally
+      await loadData(true);
+  };
 
   const getStatus = (lessonId: string) => {
     return statuses.find(s => s.assignmentId === lessonId)?.status || 'NOT_STARTED';
@@ -44,19 +57,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
 
   const isModeDone = (lesson: Lesson, mode: PracticeMode) => {
      if (mode === 'FILL_IN_BLANKS') {
-         // Special handling: key is the "Answer" part.
-         // Characters array is ["Q # A", "Q # A"]
-         // Records character is "A".
          return lesson.characters.every(item => {
-             const parts = item.split('#');
-             if (parts.length < 2) return true; // skip invalid
-             const answer = parts[1].trim();
-             const targetChar = convertCharacter(answer, student.scriptPreference);
+             // Handle Standard Sentence Builder format (Word#Word)
+             // Expected record is the sentence with '#' removed and trimmed.
+             const rawTarget = item.split('#').map(p => p.trim()).join('');
+             const targetChar = convertCharacter(rawTarget, student.scriptPreference);
              return records.some(r => r.character === targetChar && r.type === 'FILL_IN_BLANKS' && r.score === 100);
          });
      }
 
-     // Standard Check
+     // Standard Check (Writing / Pinyin)
      return lesson.characters.every(char => {
          const targetChar = convertCharacter(char, student.scriptPreference);
          // Strict match on record type
@@ -98,7 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
          return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-600 text-[10px] font-extrabold uppercase tracking-wide border border-sky-100">🗣️ Pinyin Only</span>;
      }
      if (type === 'FILL_IN_BLANKS') {
-         return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 text-[10px] font-extrabold uppercase tracking-wide border border-purple-100">🧩 Fill Blanks</span>;
+         return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 text-[10px] font-extrabold uppercase tracking-wide border border-purple-100">🧩 Sentence Builder</span>;
      }
      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[10px] font-extrabold uppercase tracking-wide border border-indigo-100">✍️ Writing Only</span>;
   };
@@ -108,10 +118,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
           return (
               <div className="flex flex-col gap-2 mb-6">
                   {lesson.characters.slice(0, 3).map((item, i) => {
-                      const q = item.split('#')[0];
+                      // Replace # with space for readability in preview
+                      const display = item.replace(/#/g, ' ');
+                      
                       return (
                           <div key={i} className="text-xs bg-slate-50 p-2 rounded border border-slate-100 truncate text-slate-500 font-mono">
-                              {q}
+                              {display}
                           </div>
                       );
                   })}
@@ -158,21 +170,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
 
       <section>
         {/* Navigation / Header */}
-        <div className="mb-6 flex items-center gap-4">
-             {selectedMode && (
-                 <Button variant="ghost" onClick={() => setSelectedMode(null)} className="pl-0 hover:bg-transparent text-slate-400 hover:text-slate-600">
-                     ← Back
-                 </Button>
-             )}
-             <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-                <span className="text-2xl">
-                    {!selectedMode ? '🚀' : selectedMode === 'WRITING' ? '✍️' : selectedMode === 'PINYIN' ? '🗣️' : '🧩'}
-                </span> 
-                {selectedMode === 'WRITING' ? 'Writing Assignments' : 
-                 selectedMode === 'PINYIN' ? 'Pinyin Assignments' : 
-                 selectedMode === 'FILL_IN_BLANKS' ? 'Fill in Blanks' :
-                 'Choose Practice Mode'}
-             </h2>
+        <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+             <div className="flex items-center gap-4">
+                 {selectedMode && (
+                     <Button variant="ghost" onClick={() => setSelectedMode(null)} className="pl-0 hover:bg-transparent text-slate-400 hover:text-slate-600">
+                         ← Back
+                     </Button>
+                 )}
+                 <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="text-2xl">
+                        {!selectedMode ? '🚀' : selectedMode === 'WRITING' ? '✍️' : selectedMode === 'PINYIN' ? '🗣️' : '🧩'}
+                    </span> 
+                    {selectedMode === 'WRITING' ? 'Writing Assignments' : 
+                     selectedMode === 'PINYIN' ? 'Pinyin Assignments' : 
+                     selectedMode === 'FILL_IN_BLANKS' ? 'Sentence Builder' :
+                     'Choose Practice Mode'}
+                 </h2>
+             </div>
+             
+             {/* Refresh Button */}
+             <Button variant="ghost" onClick={handleRefresh} className="text-slate-400 hover:text-indigo-600" title="Sync with Teacher">
+                 🔄 Sync Status
+             </Button>
         </div>
         
         {isLoading ? (
@@ -214,8 +233,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                          </div>
                      </div>
 
-                     {/* DEBUG MODE: Hiding other options to isolate issue */}
-                     {/*
                      <div 
                         onClick={() => setSelectedMode('PINYIN')}
                         className="group relative bg-white rounded-[2.5rem] p-8 shadow-xl border-4 border-transparent hover:border-sky-100 transition-all cursor-pointer hover:-translate-y-1 overflow-hidden"
@@ -239,11 +256,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                              <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-3xl flex items-center justify-center text-4xl mb-4 shadow-sm">
                                 🧩
                              </div>
-                             <h3 className="text-xl font-extrabold text-slate-800 mb-2">Fill Blank</h3>
+                             <h3 className="text-xl font-extrabold text-slate-800 mb-2">Sentence Builder</h3>
                              <p className="text-slate-500 font-bold text-sm">Vocab & grammar.</p>
                          </div>
                      </div>
-                     */}
                  </div>
              )}
 

@@ -1,3 +1,4 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useEffect, useState } from 'react';
@@ -12,27 +13,43 @@ interface ProgressReportProps {
   onBack: () => void;
 }
 
-export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records, onBack }) => {
+export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records: initialRecords, onBack }) => {
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [statuses, setStatuses] = useState<StudentAssignment[]>([]);
+  // Local state for records allows us to refresh history without reloading the whole App
+  const [records, setRecords] = useState<PracticeRecord[]>(initialRecords);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
+  const loadData = async (force = false) => {
+    setIsLoading(true);
+    const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
 
-      const [fetchedAssignments, fetchedStatuses] = await Promise.all([
-        sheetService.getAssignments(),
-        sheetService.getAssignmentStatuses(student.id),
-        minLoadTime
-      ]);
-      setAssignments(fetchedAssignments);
-      setStatuses(fetchedStatuses);
-      setIsLoading(false);
-    };
-    loadData();
+    try {
+        const [fetchedAssignments, fetchedStatuses, fetchedHistory] = await Promise.all([
+            sheetService.getAssignments(force),
+            sheetService.getAssignmentStatuses(student.id, force),
+            sheetService.getStudentHistory(student.name, force),
+            minLoadTime
+        ]);
+        setAssignments(fetchedAssignments);
+        setStatuses(fetchedStatuses);
+        setRecords(fetchedHistory);
+    } catch (e) {
+        console.error("Failed to refresh report data", e);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial load uses cache if available
+    loadData(false);
   }, [student.id]);
+
+  const handleRefresh = () => {
+      // Manual refresh forces network fetch
+      loadData(true);
+  };
 
   const getStatus = (lessonId: string) => statuses.find(s => s.assignmentId === lessonId)?.status || 'NOT_STARTED';
 
@@ -44,10 +61,11 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
     let completedCount = 0;
 
     if (type === 'FILL_IN_BLANKS') {
-         // Extract Answer from "Question # Answer" format
+         // Handle Standard (Word#Word) format
          targets = lesson.characters.map(c => {
-             const parts = c.split('#');
-             return parts.length > 1 ? parts[1].trim() : '';
+             // Standard Format: "我#是#学生" -> "我是学生"
+             // Remove all # to create the target string the user constructed
+             return c.split('#').map(p => p.trim()).join('');
          }).filter(Boolean).map(c => convertCharacter(c, student.scriptPreference));
          
          // Check strictly for FILL_IN_BLANKS records
@@ -83,7 +101,7 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
         return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-600 text-[10px] font-extrabold uppercase tracking-wide border border-sky-100">🗣️ Pinyin</span>;
     }
     if (type === 'FILL_IN_BLANKS') {
-        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 text-[10px] font-extrabold uppercase tracking-wide border border-purple-100">🧩 Fill Blanks</span>;
+        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-600 text-[10px] font-extrabold uppercase tracking-wide border border-purple-100">🧩 Sentence Builder</span>;
     }
     return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[10px] font-extrabold uppercase tracking-wide border border-indigo-100">✍️ Writing</span>;
  };
@@ -122,9 +140,14 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" onClick={onBack}>← Back</Button>
-        <h1 className="text-2xl font-extrabold text-slate-800">My Trophy Room 🏆</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={onBack}>← Back</Button>
+            <h1 className="text-2xl font-extrabold text-slate-800">My Trophy Room 🏆</h1>
+        </div>
+        <Button variant="outline" onClick={handleRefresh}>
+            Refresh
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

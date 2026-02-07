@@ -1,4 +1,5 @@
 
+
 // A lightweight mapping for common characters to demonstrate functionality.
 // Expanded to cover common HSK1/2 chars and radicals.
 const SIMP_TO_TRAD: Record<string, string> = {
@@ -42,10 +43,8 @@ const TRAD_TO_SIMP: Record<string, string> = Object.entries(SIMP_TO_TRAD).reduce
   return acc;
 }, {} as Record<string, string>);
 
-export const convertCharacter = (char: string, targetScript: 'Simplified' | 'Traditional'): string => {
-  if (targetScript === 'Traditional') {
-    return SIMP_TO_TRAD[char] || char;
-  } else {
-    return TRAD_TO_SIMP[char] || char;
-  }
+export const convertCharacter = (text: string, targetScript: 'Simplified' | 'Traditional'): string => {
+  const map = targetScript === 'Traditional' ? SIMP_TO_TRAD : TRAD_TO_SIMP;
+  // iterate through string to convert each character if possible
+  return text.split('').map(char => map[char] || char).join('');
 };

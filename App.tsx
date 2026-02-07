@@ -1,3 +1,4 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useState, useEffect } from 'react';
@@ -40,6 +41,10 @@ const App: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   
+  // Sync State
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
+  
   // Initialize with existence check so it starts as "Online" if hardcoded URL exists
   const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl());
 
@@ -72,42 +77,6 @@ const App: React.FC = () => {
 
   // --- Helpers ---
   
-  const checkAssignmentCompletion = async (lesson: Lesson, records: PracticeRecord[]) => {
-      if (!student) return;
-
-      const type = lesson.type;
-      let isComplete = false;
-
-      if (type === 'FILL_IN_BLANKS') {
-          // Check fill in blanks: Check if all "Answers" have a record
-          isComplete = lesson.characters.every(item => {
-              const parts = item.split('#');
-              if (parts.length < 2) return true; // skip broken items
-              const answer = parts[1].trim();
-              const targetChar = convertCharacter(answer, student.scriptPreference);
-              return records.some(r => r.character === targetChar && r.type === 'FILL_IN_BLANKS' && r.score === 100);
-          });
-      } else if (type === 'PINYIN') {
-          isComplete = lesson.characters.every(char => {
-              const targetChar = convertCharacter(char, student.scriptPreference);
-              return records.some(r => r.character === targetChar && r.type === 'PINYIN' && r.score === 100);
-          });
-      } else {
-          // Default Writing
-          isComplete = lesson.characters.every(char => {
-              const targetChar = convertCharacter(char, student.scriptPreference);
-              return records.some(r => r.character === targetChar && (r.type || 'WRITING') === 'WRITING' && r.score === 100);
-          });
-      }
-
-      let status: AssignmentStatus = 'IN_PROGRESS';
-      if (isComplete) {
-          status = 'COMPLETED';
-      }
-
-      await sheetService.updateAssignmentStatus(student.id, lesson.id, status);
-  };
-
   const handleUpdateTheme = (newImage: string) => {
       setBgImage(newImage);
       localStorage.setItem('hanzi_master_bg_theme', newImage);
@@ -116,6 +85,35 @@ const App: React.FC = () => {
   const handleResetTheme = () => {
       setBgImage(null);
       localStorage.removeItem('hanzi_master_bg_theme');
+  };
+
+  // Helper to sync completion at the end of assignment
+  const completeAssignment = async (lessonId: string) => {
+      if (!student) return;
+      
+      setIsSaving(true);
+      try {
+          await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED');
+          // We do NOT save individual records anymore to prevent rate limiting.
+          // Only the status 'COMPLETED' is synced.
+      } catch (e) {
+          console.error("Failed to complete assignment", e);
+      } finally {
+          setIsSaving(false);
+          setLastSyncTime(Date.now());
+      }
+  };
+
+  // Refreshes student history from the backend
+  const refreshUserData = async () => {
+      if (!student) return;
+      try {
+        // forceRefresh = true
+        const history = await sheetService.getStudentHistory(student.name, true);
+        setPracticeRecords(history);
+      } catch (e) {
+        console.error("Failed to refresh user history", e);
+      }
   };
 
   // --- Handlers ---
@@ -129,6 +127,10 @@ const App: React.FC = () => {
 
     if (nameVal && passVal) {
       setIsLoggingIn(true);
+      
+      // Ensure we start with a clean cache to avoid stale data from previous sessions
+      sheetService.clearAllCache();
+
       const tempStudent: Student = {
         id: Date.now().toString(),
         name: nameVal,
@@ -147,7 +149,8 @@ const App: React.FC = () => {
          if (lowerName === 'ms. huang' || lowerName === 'teacher') {
             setCurrentView(AppView.TEACHER_DASHBOARD);
          } else {
-            const history = await sheetService.getStudentHistory(result.student.name);
+            // Force refresh history on login
+            const history = await sheetService.getStudentHistory(result.student.name, true);
             setPracticeRecords(history);
             setCurrentView(AppView.DASHBOARD);
          }
@@ -164,6 +167,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    sheetService.clearAllCache(); // Clear cache on logout
     setStudent(null);
     setCurrentView(AppView.LOGIN);
     setPracticeRecords([]);
@@ -176,12 +180,17 @@ const App: React.FC = () => {
   const handleStartPractice = async (lesson: Lesson, mode: PracticeMode) => {
     setCurrentLesson(lesson);
     // Convert characters based on script preference before queueing
-    // Note: For Fill In Blanks, characters array contains "Question#Answer" strings, so we shouldn't convert them yet.
-    // The Game components handle parsing/conversion.
     
     let converted = lesson.characters;
-    if (mode === 'WRITING' || mode === 'PINYIN') {
-        converted = lesson.characters.map(c => student ? convertCharacter(c, student.scriptPreference) : c);
+    const pref = student?.scriptPreference || 'Simplified';
+
+    if (mode === 'FILL_IN_BLANKS') {
+        // For sentence builder, just convert the characters. 
+        // convertCharacter ignores punctuation like '#' or '?', so structure is preserved.
+        converted = lesson.characters.map(c => convertCharacter(c, pref));
+    } else {
+        // WRITING or PINYIN
+        converted = lesson.characters.map(c => convertCharacter(c, pref));
     }
 
     setPracticeQueue(converted);
@@ -195,15 +204,20 @@ const App: React.FC = () => {
     } else if (mode === 'FILL_IN_BLANKS') {
         setCurrentView(AppView.PRACTICE_FILL_IN_BLANKS);
     }
-
-    if (student) {
-       await sheetService.updateAssignmentStatus(student.id, lesson.id, 'IN_PROGRESS');
-    }
   };
 
   const handleNextWritingCharacter = () => {
+    const nextIndex = queueIndex + 1;
+    setQueueIndex(nextIndex);
     setPracticeCount(0);
-    setQueueIndex(prev => prev + 1);
+    
+    // Check if this was the last character
+    if (nextIndex >= practiceQueue.length) {
+        // Trigger completion sync
+        if (currentLesson) {
+            completeAssignment(currentLesson.id);
+        }
+    }
   };
 
   const handleWritingRoundComplete = async () => {
@@ -213,24 +227,24 @@ const App: React.FC = () => {
     if (nextCount >= 3) {
         if (!student) return;
 
+        // Local state update ONLY - No backend save here
         const currentTarget = practiceQueue[queueIndex];
         const newRecord: PracticeRecord = {
             id: Date.now().toString(),
             character: currentTarget,
             score: 100,
-            details: "Great job! Practice completed.",
+            details: "Practice completed.",
             timestamp: Date.now(),
             imageUrl: "",
             type: 'WRITING'
         };
 
-        const updatedRecords = [...practiceRecords, newRecord];
-        setPracticeRecords(updatedRecords);
-        await sheetService.savePracticeRecord(student.name, newRecord);
-
-        if (currentLesson) {
-             await checkAssignmentCompletion(currentLesson, updatedRecords);
-        }
+        // Update local records to reflect progress in UI if needed, 
+        // though Writing view uses queueIndex/practiceCount mostly.
+        setPracticeRecords(prev => [...prev, newRecord]);
+        
+        // Don't move next here, user clicks button in modal.
+        // Modal calls handleNextWritingCharacter
     }
   };
   
@@ -246,17 +260,18 @@ const App: React.FC = () => {
         type: type
       };
       
-      let updatedRecords = practiceRecords;
+      // Update local state first
       if (score === 100) {
-        updatedRecords = [...practiceRecords, newRecord];
-        setPracticeRecords(updatedRecords);
+        setPracticeRecords(prev => [...prev, newRecord]);
       }
-      await sheetService.savePracticeRecord(student.name, newRecord);
+
+      // REMOVED: Backend sync. We now wait for the game to report completion.
   };
 
   const handleGameComplete = async () => {
-      if (currentLesson && student) {
-          await checkAssignmentCompletion(currentLesson, practiceRecords);
+      // Called by Pinyin/FillBlank games when finished
+      if (currentLesson) {
+          await completeAssignment(currentLesson.id);
       }
       setCurrentView(AppView.DASHBOARD);
   };
@@ -328,7 +343,7 @@ const App: React.FC = () => {
                     : 'bg-white/90 backdrop-blur text-rose-600 border-rose-200'
                 }`}
             >
-                <div className={`w-2 h-2 rounded-full ${isConfigured ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                <div className="w-2 h-2 rounded-full bg-emerald-400" />
                 {isConfigured ? 'System Online' : 'Offline'}
             </div>
           </div>
@@ -341,9 +356,10 @@ const App: React.FC = () => {
         
         <div className="text-center mb-8 mt-4">
             <h1 className="text-3xl font-extrabold text-slate-800 mb-1 drop-shadow-sm">
-                佛光山中文學校
+                佛光中文學校
             </h1>
             <p className="text-slate-500 font-bold text-sm tracking-widest uppercase">Homework Portal</p>
+            <p className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent font-extrabold text-sm mt-1 animate-[pulse_3s_infinite] drop-shadow-sm">Ms Huang's Class</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">
@@ -379,7 +395,7 @@ const App: React.FC = () => {
                   >
                     {showPassword ? (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
@@ -423,12 +439,12 @@ const App: React.FC = () => {
             disabled={isLoggingIn}
             className="w-full text-lg font-bold py-3.5 rounded-xl bg-sky-400 text-white shadow-[0_4px_0_rgb(14,165,233)] hover:bg-sky-500 hover:shadow-[0_4px_0_rgb(2,132,199)] active:shadow-none active:translate-y-[4px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoggingIn ? 'Checking...' : 'Start Learning'}
+            {isLoggingIn ? 'Checking...' : 'Login'}
           </button>
           
           <div className="pt-4 text-center">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                This program is designed by Ms. Huang
+                This Program is Designed by Ms. Huang
             </p>
           </div>
         </form>
@@ -444,192 +460,159 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderWritingPractice = () => {
-    if (practiceQueue.length === 0) return null;
-
-    const currentTarget = practiceQueue[queueIndex];
-    const isRoundComplete = practiceCount >= 3;
-    const isLessonComplete = isRoundComplete && queueIndex >= practiceQueue.length - 1;
-
-    // Lesson Complete Success Screen
-    if (isLessonComplete) {
+  const renderPracticeWriting = () => {
+    if (!currentLesson || queueIndex >= practiceQueue.length) {
+       // Completion View - Shows success message
+       // We can rely on the fact that handleNextWritingCharacter triggered the sync already.
+       return (
+         <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 animate-fade-in">
+           <div className="bg-white p-10 rounded-[2rem] shadow-xl text-center max-w-lg border border-indigo-50">
+             <div className="text-6xl mb-6 animate-bounce">🎉</div>
+             <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Lesson Complete!</h2>
+             <p className="text-slate-500 font-bold mb-8">You've practiced all characters.</p>
+             <Button onClick={() => setCurrentView(AppView.DASHBOARD)} className="w-full py-3 text-lg">
+                Return to Dashboard
+             </Button>
+           </div>
+         </div>
+       );
+    }
+    
+    // Check if character is mastered in this session
+    if (practiceCount >= 3) {
         return (
-            <div className="max-w-xl mx-auto pt-12 animate-float">
-                <div className="bg-white p-12 rounded-[3rem] shadow-xl border-4 border-emerald-100 flex flex-col items-center text-center">
-                    <div className="text-8xl mb-6 animate-bounce">🌟</div>
-                    <h2 className="text-4xl font-extrabold text-emerald-600 mb-4">Awesome Job!</h2>
-                    <p className="text-slate-500 text-lg mb-8 font-medium">
-                        You finished the writing section!
-                    </p>
-                    <Button 
-                        className="w-full max-w-xs py-4 text-xl" 
-                        onClick={() => setCurrentView(AppView.DASHBOARD)}
-                    >
-                        Back to Dashboard
-                    </Button>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white p-8 rounded-[2rem] text-center shadow-2xl animate-bounce-in max-w-sm w-full mx-4">
+                    <div className="text-5xl mb-2">⭐</div>
+                    <h2 className="text-2xl font-extrabold text-slate-800 mb-4">Character Mastered!</h2>
+                    <Button onClick={handleNextWritingCharacter} className="w-full">Next Character →</Button>
                 </div>
             </div>
         );
     }
 
-    // Active Practice View
+    const char = practiceQueue[queueIndex];
+    
     return (
-        <div className="max-w-2xl mx-auto">
-            <div className="mb-6 flex items-center justify-between">
-                <Button variant="ghost" onClick={() => setCurrentView(AppView.DASHBOARD)}>
-                    ← Quit
-                </Button>
-                <div className="flex items-center gap-3">
-                    <span className="text-indigo-300 font-bold tracking-widest text-sm">
-                        LEVEL {queueIndex + 1} / {practiceQueue.length}
-                    </span>
-                    <div className="w-12 h-12 flex items-center justify-center bg-indigo-500 rounded-2xl text-2xl font-serif-sc font-bold text-white shadow-lg shadow-indigo-200">
-                        {currentTarget}
-                    </div>
-                </div>
-            </div>
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
+             {/* Header */}
+             <div className="w-full max-w-4xl flex justify-between items-center mb-6">
+                 <Button variant="ghost" onClick={() => setCurrentView(AppView.DASHBOARD)}>Exit</Button>
+                 <div className="flex gap-4 text-sm font-bold text-slate-400 uppercase tracking-wider">
+                     <span>Char {queueIndex + 1}/{practiceQueue.length}</span>
+                     <span>Round {practiceCount + 1}/3</span>
+                 </div>
+             </div>
 
-            <div className="bg-white/80 backdrop-blur p-8 rounded-[2.5rem] shadow-xl border border-white flex flex-col items-center relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
-                    <div 
-                        className="h-full bg-emerald-400 transition-all duration-500 rounded-r-full" 
-                        style={{ width: `${((queueIndex) / practiceQueue.length) * 100}%` }}
-                    />
-                </div>
-
-                <div className="flex gap-2 mb-6 mt-4">
-                    {[1, 2, 3].map((step) => (
-                        <div 
-                            key={step} 
-                            className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                                step <= practiceCount ? 'bg-emerald-400 scale-110' : 'bg-slate-200'
-                            }`}
-                        />
-                    ))}
-                </div>
-
-                <h2 className="text-2xl font-extrabold text-slate-700 mb-2">
-                    {isRoundComplete ? 'Good Job!' : `Write it ${3 - practiceCount} more times`}
-                </h2>
-
-                {!isRoundComplete ? (
-                    <HanziPlayer 
-                        key={`${currentTarget}-${practiceCount}`}
-                        character={currentTarget} 
+             <div className="flex-1 w-full max-w-4xl flex flex-col items-center justify-center">
+                 {/* Single HanziPlayer Container */}
+                 <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col items-center w-full max-w-md">
+                     <div className="mb-4 text-center">
+                         <h3 className="text-slate-400 font-bold text-xs uppercase mb-1">Write the Character</h3>
+                         <p className="text-slate-500 font-bold text-sm">Follow the strokes. Click 'Watch' for help.</p>
+                     </div>
+                     
+                     <HanziPlayer 
+                        key={`${char}-${practiceCount}`}
+                        character={char} 
                         initialMode="quiz"
-                        onComplete={handleWritingRoundComplete}
-                    />
-                ) : (
-                    <div className="flex flex-col items-center py-12 animate-fade-in">
-                        <div className="text-6xl mb-6 animate-bounce">✨</div>
-                        <Button 
-                            className="w-48 text-lg" 
-                            onClick={handleNextWritingCharacter}
-                        >
-                            Next Word →
-                        </Button>
-                    </div>
-                )}
-            </div>
+                        onComplete={() => {
+                            handleWritingRoundComplete();
+                            const toast = document.createElement('div');
+                            toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[60]';
+                            toast.innerText = 'Good Job! (+1)';
+                            document.body.appendChild(toast);
+                            setTimeout(() => toast.remove(), 2000);
+                        }}
+                     />
+                 </div>
+             </div>
         </div>
     );
   };
 
-  return (
-    <div className="min-h-screen bg-sky-50 text-slate-800 pb-12 font-sans selection:bg-indigo-100 selection:text-indigo-700">
-        {/* Modal */}
-        {showSetup && <SetupModal onClose={() => {
-            setShowSetup(false);
-            setIsConfigured(!!sheetService.getUrl());
-        }} />}
-
-        {/* Header */}
-        {currentView !== AppView.LOGIN && (
-             <header className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-sky-100 shadow-sm">
-                <div className="max-w-5xl mx-auto px-6 h-20 flex items-center justify-between">
-                    <div 
-                        className="flex items-center gap-3 cursor-pointer group" 
-                        onClick={() => {
-                            if (student && (student.name === 'Ms. Huang' || student.name === 'Teacher')) {
-                                setCurrentView(AppView.TEACHER_DASHBOARD);
-                            } else if (student) {
-                                setCurrentView(AppView.DASHBOARD);
-                            }
-                        }}
-                    >
-                         <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-indigo-200 group-hover:rotate-12 transition-transform">
-                             📖
-                         </div>
-                         <div className="flex flex-col">
-                             <span className="font-extrabold text-lg text-slate-800 leading-none">佛光山中文學校</span>
-                             <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Learning Portal</span>
-                         </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                        {student && (
-                            <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full ${student.name === 'Ms. Huang' || student.name === 'Teacher' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'}`}>
-                                <span className="text-lg">{student.name === 'Ms. Huang' || student.name === 'Teacher' ? '🍎' : '🎓'}</span>
-                                <span className="text-sm font-bold">{student.name}</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </header>
-        )}
-
-      <main className="max-w-5xl mx-auto px-4 pt-8">
-        {currentView === AppView.LOGIN && renderLogin()}
-        
-        {currentView === AppView.DASHBOARD && student && (
-          <Dashboard 
-            student={student} 
-            onStartPractice={handleStartPractice} 
-            onViewReport={() => setCurrentView(AppView.REPORT)}
-            onLogout={handleLogout}
-            records={practiceRecords}
+  // Main Render Switch
+  if (currentView === AppView.LOGIN) return renderLogin();
+  
+  if (currentView === AppView.TEACHER_DASHBOARD) {
+      return (
+          <TeacherDashboard 
+              onLogout={handleLogout}
+              onOpenSetup={() => setShowSetup(true)}
+              onUpdateTheme={handleUpdateTheme}
+              onResetTheme={handleResetTheme}
           />
-        )}
-        
-        {currentView === AppView.PRACTICE_WRITING && renderWritingPractice()}
+      );
+  }
 
-        {currentView === AppView.PRACTICE_PINYIN && currentLesson && (
-           <PinyinGame 
-              lesson={{ ...currentLesson, characters: practiceQueue }} 
+  if (currentView === AppView.REPORT && student) {
+      return <ProgressReport student={student} records={practiceRecords} onBack={() => setCurrentView(AppView.DASHBOARD)} />;
+  }
+
+  if (currentView === AppView.PRACTICE_PINYIN && currentLesson) {
+      return (
+          <PinyinGame 
+              lesson={currentLesson}
+              initialCharacters={practiceQueue} // Pass converted characters
               onComplete={handleGameComplete}
               onExit={() => setCurrentView(AppView.DASHBOARD)}
               onRecordResult={handleGenericRecord}
-           />
-        )}
+          />
+      );
+  }
 
-        {currentView === AppView.PRACTICE_FILL_IN_BLANKS && currentLesson && (
-            <FillInBlanksGame
-                lesson={{ ...currentLesson, characters: practiceQueue }}
-                onComplete={handleGameComplete}
-                onExit={() => setCurrentView(AppView.DASHBOARD)}
-                onRecordResult={handleGenericRecord}
-            />
-        )}
-        
-        {currentView === AppView.REPORT && student && (
-            <ProgressReport 
-                student={student}
-                records={practiceRecords} 
-                onBack={() => setCurrentView(AppView.DASHBOARD)} 
-            />
-        )}
+  if (currentView === AppView.PRACTICE_FILL_IN_BLANKS && currentLesson) {
+      return (
+          <FillInBlanksGame 
+              lesson={currentLesson}
+              initialCharacters={practiceQueue} // Pass converted characters (with Q#A structure preserved)
+              onComplete={handleGameComplete}
+              onExit={() => setCurrentView(AppView.DASHBOARD)}
+              onRecordResult={handleGenericRecord}
+          />
+      );
+  }
 
-        {currentView === AppView.TEACHER_DASHBOARD && (
-            <TeacherDashboard 
-              onLogout={handleLogout} 
-              onOpenSetup={() => setShowSetup(true)}
-              onUpdateTheme={handleUpdateTheme}
-              onResetTheme={handleResetTheme} 
-            />
-        )}
-      </main>
-    </div>
-  );
+  if (currentView === AppView.PRACTICE_WRITING && currentLesson) {
+     return renderPracticeWriting();
+  }
+
+  // Default Dashboard
+  if (student) {
+      return (
+          <div className="min-h-screen bg-slate-50 p-6 md:p-8" 
+               style={{ backgroundImage: bgImage ? `url(${bgImage})` : '', backgroundSize: 'cover', backgroundAttachment: 'fixed', backgroundPosition: 'center' }}>
+             
+             {/* SYNC INDICATOR */}
+             <div className="fixed top-6 right-6 z-50">
+                {isSaving ? (
+                    <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-indigo-100 flex items-center gap-2 animate-bounce-in">
+                        <span className="animate-spin text-lg">☁️</span>
+                        <span className="text-xs font-extrabold text-indigo-500 uppercase tracking-wide">Saving...</span>
+                    </div>
+                ) : (
+                    <div className="bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/50 flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+                         <span className="text-lg">☁️</span>
+                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Synced</span>
+                    </div>
+                )}
+             </div>
+
+             <div className="max-w-6xl mx-auto bg-white/90 backdrop-blur-xl rounded-[3rem] p-8 shadow-2xl min-h-[85vh] border border-white">
+                <Dashboard 
+                    student={student} 
+                    records={practiceRecords}
+                    onStartPractice={handleStartPractice}
+                    onViewReport={() => setCurrentView(AppView.REPORT)}
+                    onLogout={handleLogout}
+                    onRefreshData={refreshUserData}
+                />
+             </div>
+          </div>
+      );
+  }
+
+  return renderLogin();
 };
 
 export default App;

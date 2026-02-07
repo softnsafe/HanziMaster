@@ -1,3 +1,4 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useState } from 'react';
@@ -10,7 +11,7 @@ interface SetupModalProps {
 
 const APPS_SCRIPT_CODE = `
 // CONFIGURATION
-const VERSION = 'v1.42'; // Added Delete Functionality
+const VERSION = '020226-v7'; // Updated Version
 // Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
@@ -92,13 +93,15 @@ function findColumnIndex(headers, keys) {
 }
 
 function doGet(e) {
-  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. v1.42");
+  if (!e || !e.parameter) return ContentService.createTextOutput("Script running. " + VERSION);
   const params = e.parameter; const action = params.action;
   try {
-      if (action === 'getAssignments') return getAssignments();
+      if (action === 'health') return response({status: 'success', version: VERSION});
+      else if (action === 'getAssignments') return getAssignments();
       else if (action === 'getHistory') return getHistory(params.studentName);
       else if (action === 'getAssignmentStatuses') return getAssignmentStatuses(params.studentId);
       else if (action === 'getAllStudentProgress') return getAllStudentProgress();
+      else if (action === 'getLoginLogs') return getLoginLogs();
       return response({status: 'error', message: 'Invalid action'});
   } catch (err) { return response({status: 'error', message: err.toString()}); }
 }
@@ -156,7 +159,8 @@ function getAssignments() {
     }
     let type = 'WRITING'; 
     if (rawType.indexOf('PIN') > -1) type = 'PINYIN';
-    else if (rawType.indexOf('FILL') > -1) type = 'FILL_IN_BLANKS';
+    // Accepts FILL, FILL_IN_BLANK, SENTENCE, SENTENCE_BUILDER
+    else if (rawType.indexOf('FILL') > -1 || rawType.indexOf('SENTENCE') > -1) type = 'FILL_IN_BLANKS';
     else if (rawType.length > 0) type = 'WRITING'; 
     
     lessons.push({
@@ -214,7 +218,7 @@ function createAssignment(payload) {
   if (payload.type) {
       const t = payload.type.toUpperCase();
       if (t === 'PINYIN') typeVal = 'PINYIN';
-      else if (t === 'FILL_IN_BLANKS') typeVal = 'FILL_IN_BLANKS';
+      else if (t === 'FILL_IN_BLANKS') typeVal = 'SENTENCE_BUILDER'; // Save as SENTENCE_BUILDER
   }
   row[typeIndex] = typeVal;
   sheet.appendRow(row);
@@ -243,7 +247,7 @@ function editAssignment(payload) {
   if (payload.type) {
       const t = payload.type.toUpperCase();
       if (t === 'PINYIN') typeVal = 'PINYIN';
-      else if (t === 'FILL_IN_BLANKS') typeVal = 'FILL_IN_BLANKS';
+      else if (t === 'FILL_IN_BLANKS') typeVal = 'SENTENCE_BUILDER'; // Save as SENTENCE_BUILDER
   }
   let typeIndex = findColumnIndex(headers, ['type', 'assignment type']);
   if (typeIndex > -1) { sheet.getRange(rowIndex, typeIndex + 1).setValue(typeVal); }
@@ -288,7 +292,7 @@ function getHistory(studentName) {
          if (typeIndex > -1 && row[typeIndex]) { 
             const raw = String(row[typeIndex]).toUpperCase(); 
             if (raw.includes('PIN')) type = 'PINYIN'; 
-            else if (raw.includes('FILL')) type = 'FILL_IN_BLANKS';
+            else if (raw.includes('FILL') || raw.includes('SENTENCE')) type = 'FILL_IN_BLANKS';
          }
          records.push({ id: row[0], character: row[2], score: Number(row[3]), details: msgColIndex > -1 ? row[msgColIndex] : "", timestamp: Number(row[5]), type: type });
      }
@@ -305,7 +309,20 @@ function getAllStudentProgress() {
   const scriptIndex = headers.indexOf('Script'); const students = {}; 
   studentsData.forEach(row => {
     const id = String(row[0]);
-    students[id] = { id: id, name: row[1], assignmentsCompleted: 0, completedWriting: 0, completedPinyin: 0, completedBoth: 0, totalPracticed: 0, rawScores: [], averageScore: 0, lastActive: row[3], script: scriptIndex > -1 ? row[scriptIndex] : 'Simplified' };
+    students[id] = { 
+        id: id, 
+        name: row[1], 
+        assignmentsCompleted: 0, 
+        assignmentsInProgress: 0, 
+        completedWriting: 0, 
+        completedPinyin: 0, 
+        completedFillBlank: 0, 
+        totalPracticed: 0, 
+        rawScores: [], 
+        averageScore: 0, 
+        lastActive: row[3], 
+        script: scriptIndex > -1 ? row[scriptIndex] : 'Simplified' 
+    };
   });
   const assignmentTypes = {};
   if (assignDefSheet) {
@@ -318,7 +335,7 @@ function getAllStudentProgress() {
                  let t = 'WRITING'; if (tIdx > -1 && r[tIdx]) { 
                     const raw = String(r[tIdx]).toUpperCase(); 
                     if (raw.includes('PIN')) t = 'PINYIN'; 
-                    else if (raw.includes('FILL')) t = 'FILL_IN_BLANKS';
+                    else if (raw.includes('FILL') || raw.includes('SENTENCE')) t = 'FILL_IN_BLANKS';
                  }
                  assignmentTypes[String(r[0])] = t;
              }
@@ -328,10 +345,17 @@ function getAllStudentProgress() {
   if (assignmentSheet) {
     const assignData = assignmentSheet.getDataRange().getValues();
     for(let i=1; i<assignData.length; i++) {
-      const row = assignData[i]; const sId = String(row[0]); const aId = String(row[1]);
-      if (students[sId] && row[2] === 'COMPLETED') {
-        students[sId].assignmentsCompleted += 1; const type = assignmentTypes[aId] || 'WRITING';
-        if (type === 'WRITING') students[sId].completedWriting += 1; else if (type === 'PINYIN') students[sId].completedPinyin += 1; else students[sId].completedBoth += 1;
+      const row = assignData[i]; const sId = String(row[0]); const aId = String(row[1]); const status = row[2];
+      if (students[sId]) {
+         if (status === 'COMPLETED') {
+            students[sId].assignmentsCompleted += 1; 
+            const type = assignmentTypes[aId] || 'WRITING';
+            if (type === 'WRITING') students[sId].completedWriting += 1; 
+            else if (type === 'PINYIN') students[sId].completedPinyin += 1; 
+            else if (type === 'FILL_IN_BLANKS') students[sId].completedFillBlank += 1;
+         } else if (status === 'IN_PROGRESS') {
+             students[sId].assignmentsInProgress += 1;
+         }
       }
     }
   }
@@ -348,48 +372,112 @@ function getAllStudentProgress() {
   return response({ students: result });
 }
 
+function getLoginLogs() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('LoginLogs');
+  if (!sheet) return response({ logs: [] });
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return response({ logs: [] });
+  
+  // Fetch last 100 rows max
+  const startRow = Math.max(2, lastRow - 99);
+  const numRows = lastRow - startRow + 1;
+  const data = sheet.getRange(startRow, 1, numRows, 4).getValues();
+  
+  // Map and reverse (newest first)
+  const logs = data.reverse().map(row => ({
+     timestamp: row[0],
+     studentId: row[1],
+     name: row[2],
+     action: row[3]
+  }));
+  return response({ logs: logs });
+}
+
 function handleLogin(student) {
-  const ss = getSpreadsheet(); let sheet = ss.getSheetByName('Students');
+  const ss = getSpreadsheet(); 
+  let sheet = ss.getSheetByName('Students');
   if (!sheet) { setup(); sheet = ss.getSheetByName('Students'); }
-  const data = sheet.getDataRange().getValues(); const headers = data[0];
-  const inputName = student.name.trim(); const inputPass = student.password ? student.password.trim() : "";
+  
+  const data = sheet.getDataRange().getValues(); 
+  const headers = data[0];
+  const inputName = student.name.trim(); 
+  const inputPass = student.password ? student.password.trim() : "";
   const scriptPref = student.scriptPreference || 'Simplified';
-  let foundRow = -1; let existingId = ""; let correctName = inputName; let scriptColIndex = headers.indexOf('Script') + 1;
-  if (scriptColIndex === 0) { const lastCol = sheet.getLastColumn(); sheet.getRange(1, lastCol + 1).setValue('Script'); scriptColIndex = lastCol + 1; }
-  for (let i = 1; i < data.length; i++) { if (String(data[i][1]).trim().toLowerCase() == inputName.toLowerCase()) { foundRow = i + 1; existingId = String(data[i][0]); correctName = String(data[i][1]).trim(); break; } }
+  
+  let foundRow = -1; 
+  let existingId = ""; 
+  let correctName = inputName; 
+  let storedPass = "";
+
+  // 1. Find User by Name (Case Insensitive)
+  for (let i = 1; i < data.length; i++) { 
+    if (String(data[i][1]).trim().toLowerCase() == inputName.toLowerCase()) { 
+      foundRow = i + 1; 
+      existingId = String(data[i][0]); 
+      correctName = String(data[i][1]).trim(); 
+      storedPass = String(data[i][4]); // Password column index 4
+      break; 
+    } 
+  }
+  
   const timestamp = new Date().toISOString();
   
-  let finalId = existingId;
-  let finalName = correctName;
-
   if (foundRow > 0) { 
-      sheet.getRange(foundRow, 4).setValue(timestamp); 
-      if (scriptColIndex > 0) sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); 
-  } else { 
-      const newId = 's-' + new Date().getTime(); 
-      finalId = newId;
-      finalName = inputName;
-      const rowData = [newId, inputName, timestamp, timestamp, inputPass]; 
-      if (scriptColIndex > 0) { while(rowData.length < scriptColIndex - 1) rowData.push(""); rowData[scriptColIndex - 1] = scriptPref; } 
-      sheet.appendRow(rowData); 
-  }
-  
-  // Record to LoginLogs
-  let logSheet = ss.getSheetByName('LoginLogs');
-  if (!logSheet) { setup(); logSheet = ss.getSheetByName('LoginLogs'); }
-  if (logSheet) {
-      logSheet.appendRow([new Date(), finalId, finalName, 'Login', '']);
-  }
+      // 2. Enforce Password Check if user exists
+      if (storedPass && storedPass != inputPass) {
+          return response({ status: 'error', message: 'Incorrect Password' });
+      }
 
-  return response({ status: 'success', student: { ...student, id: finalId, name: finalName, scriptPreference: scriptPref } });
+      // 3. Update Timestamp
+      sheet.getRange(foundRow, 4).setValue(timestamp); 
+      
+      // 4. Update Script Preference
+      let scriptColIndex = headers.indexOf('Script') + 1;
+      if (scriptColIndex === 0) { 
+          // Attempt to find or create if missing from header (unlikely given setup())
+          const lastCol = sheet.getLastColumn(); 
+          sheet.getRange(1, lastCol + 1).setValue('Script'); 
+          scriptColIndex = lastCol + 1; 
+      }
+      if (scriptColIndex > 0) {
+          sheet.getRange(foundRow, scriptColIndex).setValue(scriptPref); 
+      }
+
+      // 5. Log Success
+      let logSheet = ss.getSheetByName('LoginLogs');
+      if (!logSheet) { setup(); logSheet = ss.getSheetByName('LoginLogs'); }
+      if (logSheet) {
+          logSheet.appendRow([new Date(), existingId, correctName, 'Login', '']);
+      }
+
+      return response({ status: 'success', student: { ...student, id: existingId, name: correctName, scriptPreference: scriptPref } });
+  } else { 
+      // 6. User Not Found - Reject Registration
+      return response({ status: 'error', message: 'User not found. Please ask your teacher to create an account.' });
+  }
 }
+
 function saveRecord(payload) {
   const ss = getSpreadsheet(); let sheet = ss.getSheetByName('Progress');
   if (!sheet) { setup(); sheet = ss.getSheetByName('Progress'); }
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   let typeIndex = findColumnIndex(headers, ['type']);
   if (typeIndex === -1) { const nextCol = headers.length + 1; sheet.getRange(1, nextCol).setValue('Type'); typeIndex = nextCol - 1; }
-  const row = new Array(typeIndex + 1).fill(""); row[0] = payload.id; row[1] = payload.studentName; row[2] = payload.character; row[3] = payload.score; row[4] = payload.details; row[5] = payload.timestamp; row[6] = new Date().toISOString(); row[typeIndex] = payload.type || 'WRITING';
+  const row = new Array(typeIndex + 1).fill(""); 
+  row[0] = payload.id; 
+  row[1] = payload.studentName; 
+  row[2] = payload.character; 
+  row[3] = payload.score; 
+  row[4] = payload.details; 
+  row[5] = payload.timestamp; 
+  row[6] = new Date().toISOString(); 
+  
+  let typeVal = 'WRITING';
+  if (payload.type === 'PINYIN') typeVal = 'PINYIN';
+  else if (payload.type === 'FILL_IN_BLANKS') typeVal = 'SENTENCE_BUILDER'; // Save as SENTENCE_BUILDER
+  
+  row[typeIndex] = typeVal;
   sheet.appendRow(row);
   return response({ status: 'success' });
 }
@@ -459,14 +547,15 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
             setTimeout(() => reject(new Error("Connection check timed out.")), 8000);
         });
 
+        // Use the new checkConnection method
         const result: any = await Promise.race([
-            sheetService.seedSampleData(),
+            sheetService.checkConnection(),
             timeout
         ]);
 
         if (result.success) {
             setStatus('success');
-            setStatusMsg('Connected & Ready!');
+            setStatusMsg(result.message || 'Connected & Ready!');
             setTimeout(() => { onClose(); }, 1500);
         } else {
             setStatus('error');
@@ -521,7 +610,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
            <div>
-             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v1.42)</h2>
+             <h2 className="text-xl font-extrabold text-slate-800">🛠️ App Setup (v020226)</h2>
              <p className="text-sm text-slate-500 font-bold">Connect your Google Sheet</p>
            </div>
            <button onClick={onClose} className="text-slate-400 hover:text-slate-600" type="button">
@@ -538,7 +627,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                     </div>
                     <div className="pl-11 space-y-4">
                         <p className="text-sm text-slate-600">
-                            Copy the new code below (v1.42). <br/>
+                            Copy the new code below (v020226-v7). <br/>
                             <strong>Important:</strong> You must create a new deployment after pasting this code.
                         </p>
                         <div className="relative">

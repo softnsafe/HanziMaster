@@ -1,24 +1,33 @@
+
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { Flashcard, Lesson } from '../types';
 import { getFlashcardData, playPronunciation } from '../services/geminiService';
+import { pinyinify } from '../utils/pinyinUtils';
 
 interface PinyinGameProps {
   lesson: Lesson;
+  initialCharacters: string[]; // Converted characters from App
   onComplete: () => void;
   onExit: () => void;
   onRecordResult: (char: string, score: number, type: 'PINYIN') => void;
 }
 
-export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onExit, onRecordResult }) => {
-  const [queue, setQueue] = useState<string[]>(lesson.characters);
+export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacters, onComplete, onExit, onRecordResult }) => {
+  // Use pre-converted characters if available, otherwise fallback to lesson default
+  const [queue, setQueue] = useState<string[]>(initialCharacters && initialCharacters.length > 0 ? initialCharacters : lesson.characters);
+  
   const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [mistakes, setMistakes] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
+  
+  // Game State
   const [status, setStatus] = useState<'IDLE' | 'CORRECT' | 'WRONG'>('IDLE');
+  const [attempts, setAttempts] = useState(0); // Track failed attempts for current card
+  
   const [loadingCard, setLoadingCard] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
@@ -45,31 +54,52 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
     loadCard();
   }, [currentChar, isFinished, flashcards]);
 
+  // Reset state when moving to next card
+  useEffect(() => {
+      setStatus('IDLE');
+      setAttempts(0);
+      setInputValue('');
+      setTimeout(() => inputRef.current?.focus(), 100);
+  }, [currentIndex]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!card || status !== 'IDLE' || !currentChar) return;
 
-    const normalizedInput = inputValue.trim().toLowerCase();
-    const normalizedTarget = card.pinyin.toLowerCase().replace(/\s+/g, ''); // remove spaces in pinyin if any
+    // Normalization helper: convert v/u: to ü and strip spaces
+    const normalize = (str: string) => {
+        return str.trim().toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/v/g, 'ü')
+            .replace(/u:/g, 'ü');
+    };
+
+    const normalizedInput = normalize(inputValue);
+    const normalizedTarget = normalize(card.pinyin); 
     
-    // Simple check: allow spaces or no spaces
-    const isCorrect = normalizedInput.replace(/\s+/g, '') === normalizedTarget;
+    const isCorrect = normalizedInput === normalizedTarget;
 
     if (isCorrect) {
       setStatus('CORRECT');
       onRecordResult(currentChar, 100, 'PINYIN');
       // Play sound effect?
     } else {
-      setStatus('WRONG');
-      setMistakes(prev => [...prev, currentChar]);
-      onRecordResult(currentChar, 0, 'PINYIN');
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
+      
+      if (newAttempts >= 3) {
+          setStatus('WRONG');
+          setMistakes(prev => [...prev, currentChar]);
+          onRecordResult(currentChar, 0, 'PINYIN');
+      } else {
+          // Shake effect or visual feedback could go here
+          setInputValue(''); // Clear input for retry
+          setTimeout(() => inputRef.current?.focus(), 100);
+      }
     }
   };
 
   const handleNext = () => {
-    setInputValue('');
-    setStatus('IDLE');
-    
     // If we are at the end
     if (currentIndex >= queue.length - 1) {
        // Check if there are mistakes to review
@@ -126,7 +156,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
       </div>
 
       {/* Card */}
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-xl w-full text-center border-4 border-slate-100 relative overflow-hidden transition-all">
+      <div className={`bg-white rounded-[2.5rem] p-8 shadow-xl w-full text-center border-4 relative overflow-hidden transition-all ${status === 'IDLE' && attempts > 0 ? 'border-amber-200 animate-pulse' : 'border-slate-100'}`}>
          
          {loadingCard ? (
              <div className="py-20 flex flex-col items-center gap-4">
@@ -161,24 +191,30 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
 
                 {/* Feedback Overlay */}
                 {status === 'CORRECT' && (
-                    <div className="absolute inset-0 bg-emerald-500/90 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20">
+                    <div className="absolute inset-0 bg-emerald-500/95 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20">
                         <div className="text-white">
                             <div className="text-6xl mb-2">✅</div>
                             <div className="font-extrabold text-2xl">Correct!</div>
-                            <div className="font-mono opacity-80 mt-1">{card?.pinyin}</div>
+                            <div className="font-mono opacity-90 mt-2 text-xl">{pinyinify(card?.pinyin || '')}</div>
                         </div>
                     </div>
                 )}
 
                 {status === 'WRONG' && (
-                    <div className="absolute inset-0 bg-rose-500/90 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20">
-                         <div className="text-white">
-                            <div className="text-6xl mb-2">❌</div>
-                            <div className="font-extrabold text-2xl">Oops!</div>
-                            <div className="font-mono text-xl bg-white/20 rounded-lg px-4 py-2 mt-4 inline-block">
-                                {card?.pinyin}
+                    <div className="absolute inset-0 bg-rose-500/95 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20">
+                         <div className="text-white flex flex-col items-center max-w-[80%]">
+                            <div className="text-5xl mb-2">❌</div>
+                            <div className="font-extrabold text-2xl mb-4">Don't give up!</div>
+                            
+                            <div className="bg-white/20 rounded-xl p-4 w-full mb-2">
+                                <div className="text-xs uppercase font-bold opacity-75 mb-1">Correct Answer</div>
+                                <div className="font-mono text-2xl font-bold">{pinyinify(card?.pinyin || '')}</div>
                             </div>
-                            <p className="text-sm mt-4 font-bold opacity-80">Don't worry, we'll review this.</p>
+
+                            <div className="bg-black/20 rounded-xl p-4 w-full">
+                                <div className="text-xs uppercase font-bold opacity-75 mb-1">You Typed</div>
+                                <div className="font-mono text-xl">{pinyinify(inputValue) || '-'}</div>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -192,13 +228,19 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, onComplete, onEx
             {status === 'IDLE' ? (
                 <div className="space-y-4">
                     <p className="text-center text-slate-400 text-xs font-bold uppercase tracking-wider">
-                        Type Pinyin + Tone Number (e.g. hao3)
+                        {attempts > 0 ? (
+                            <span className="text-amber-500 animate-bounce block">
+                                Try Again! You have {3 - attempts} more chances.
+                            </span>
+                        ) : (
+                            "Type Pinyin + Tone Number (e.g. hao3)"
+                        )}
                     </p>
                     <div className="flex gap-2">
                         <input 
                             ref={inputRef}
                             type="text" 
-                            className="flex-1 bg-white border-2 border-indigo-100 rounded-xl px-6 py-4 text-center font-bold text-2xl text-slate-700 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 placeholder-slate-200"
+                            className={`flex-1 bg-white border-2 rounded-xl px-6 py-4 text-center font-bold text-2xl text-slate-700 outline-none focus:ring-4 placeholder-slate-200 transition-colors ${attempts > 0 ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-100' : 'border-indigo-100 focus:border-indigo-400 focus:ring-indigo-50'}`}
                             placeholder="Type here..."
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
