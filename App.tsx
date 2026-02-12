@@ -2,7 +2,7 @@
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
 import React, { useState, useEffect } from 'react';
-import { Student, PracticeRecord, AppView, ScriptType, Lesson, PracticeMode, AssignmentStatus } from './types';
+import { Student, PracticeRecord, AppView, ScriptType, Lesson, PracticeMode } from './types';
 import { Button } from './components/Button';
 import { Dashboard } from './components/Dashboard';
 import { ProgressReport } from './components/ProgressReport';
@@ -44,7 +44,6 @@ const App: React.FC = () => {
   
   // Sync State
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   
   // Initialize with existence check so it starts as "Online" if hardcoded URL exists
   const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl() || sheetService.isDemoMode());
@@ -109,7 +108,6 @@ const App: React.FC = () => {
           console.error("Failed to complete assignment", e);
       } finally {
           setIsSaving(false);
-          setLastSyncTime(Date.now());
       }
   };
 
@@ -198,6 +196,8 @@ const App: React.FC = () => {
       } else {
          if (result.message === "Backend not configured") {
              setLoginError("App is Offline. Please click the gear icon ⚙️ above to setup.");
+             // Force gear icon to show if backend is missing
+             setIsConfigured(false);
          } else {
              setLoginError(result.message || 'Login failed');
          }
@@ -349,7 +349,8 @@ const App: React.FC = () => {
       {/* Status Indicator & Setup */}
       <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3">
           <div className="flex items-center gap-2">
-            {!isConfigured && (
+            {/* Show gear if not configured OR if there is a login error (to fix connection) */}
+            {(!isConfigured || loginError) && (
                 <button 
                     onClick={() => setShowSetup(true)}
                     className="w-10 h-10 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-slate-400 hover:text-indigo-600 shadow-sm border border-slate-200 transition-all hover:rotate-90 hover:bg-white"

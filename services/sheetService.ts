@@ -65,7 +65,15 @@ const MOCK_STORE: StoreItem[] = [
 ];
 
 export const sheetService = {
-  getUrl(): string { return localStorage.getItem(STORAGE_KEY) || ENV_URL; },
+  getUrl(): string { 
+      let url = localStorage.getItem(STORAGE_KEY) || ENV_URL; 
+      url = url.trim();
+      // Robust check: if the user pasted an /edit URL, fix it automatically
+      if (url && url.includes('/edit')) {
+          return url.split('/edit')[0] + '/exec';
+      }
+      return url;
+  },
   
   isDemoMode(): boolean { return localStorage.getItem(DEMO_KEY) === 'true'; },
   
