@@ -264,7 +264,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                                 if (!s) return null;
                                                 return (
                                                     <div key={`${s.id}-${idx}`} className="aspect-square bg-white rounded-2xl flex flex-col items-center justify-center border-2 border-slate-100 shadow-sm hover:scale-105 transition-transform overflow-hidden relative" title={s.name}>
-                                                        {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{s.emoji}</div>}
+                                                        {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{(s as any).emoji}</div>}
                                                     </div>
                                                 );
                                             })}

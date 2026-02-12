@@ -429,7 +429,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                                               if (!s) return null;
                                               return (
                                                 <div key={`${s.id}-${idx}`} className="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-4xl border-2 border-slate-100 overflow-hidden relative" title={s.name}>
-                                                    {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : s.emoji}
+                                                    {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : (s as any).emoji}
                                                 </div>
                                               );
                                           })}
