@@ -1,45 +1,87 @@
 
+
 export type ScriptType = 'Simplified' | 'Traditional';
 
 export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
 
 export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS';
 
+export type CalendarEventType = 'SCHOOL_DAY' | 'SPECIAL_EVENT' | 'NO_SCHOOL';
+
+export interface CalendarEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  type: CalendarEventType;
+  description?: string;
+}
+
 export interface StudentAssignment {
   assignmentId: string;
   status: AssignmentStatus;
 }
 
+export interface CustomStickerData {
+  id: string;
+  studentId: string;
+  dataUrl: string; // Base64 image
+  prompt: string;
+}
+
+export interface StoreItem {
+  id: string;
+  name: string;
+  imageUrl: string;
+  cost: number;
+  category: string;
+  active: boolean;
+}
+
 export interface Student {
   id: string;
   name: string;
-  password?: string; // Added for authentication
+  password?: string;
   joinedAt: string;
   scriptPreference: ScriptType;
+  points: number;
+  stickers: string[]; // Array of sticker IDs (standard or custom)
+  customStickers?: CustomStickerData[]; // Hydrated custom stickers
+  canCreateStickers?: boolean; // Permission flag
 }
 
 export interface StudentSummary {
   id: string;
   name: string;
   assignmentsCompleted: number;
-  assignmentsInProgress: number; // New field for tracking active work
-  completedWriting?: number; 
-  completedPinyin?: number;  
-  completedFillBlank?: number; // Specific tracker for Sentence Builder
+  assignmentsInProgress: number;
   averageScore: number;
   lastActive: string;
   totalPracticed: number;
   script?: string; 
+  points: number;
+  canCreateStickers?: boolean;
+  stickers?: string[];
+  customStickers?: CustomStickerData[];
+}
+
+export interface Sticker {
+  id: string;
+  name: string;
+  emoji?: string;
+  imageUrl?: string;
+  cost: number;
+  category: 'ANIMAL' | 'FOOD' | 'CELESTIAL' | 'OBJECT' | 'CUSTOM' | 'STORE';
+  description: string;
 }
 
 export interface PracticeRecord {
   id: string;
   character: string;
   score: number;
-  details: string; // Renamed from feedback to details
+  details: string;
   timestamp: number;
-  imageUrl?: string; // Base64 of the attempt
-  type?: PracticeMode; // 'WRITING' or 'PINYIN'
+  imageUrl?: string;
+  type?: PracticeMode;
 }
 
 export interface Lesson {
@@ -47,16 +89,17 @@ export interface Lesson {
   title: string;
   characters: string[];
   description: string;
-  startDate?: string; // ISO Date String YYYY-MM-DD
-  endDate?: string;   // ISO Date String YYYY-MM-DD
-  type: PracticeMode; // Strict Type Required
+  startDate?: string;
+  endDate?: string;
+  type: PracticeMode;
+  assignedTo?: string[]; // Array of student IDs. If empty/undefined, assigned to all.
 }
 
 export interface Flashcard {
   character: string;
-  pinyin: string; // Numbered: ni3
+  pinyin: string;
   definition: string;
-  emoji: string; // Acts as the 'Picture'
+  emoji: string;
 }
 
 export interface LoginLog {
@@ -64,6 +107,7 @@ export interface LoginLog {
   studentId: string;
   name: string;
   action: string;
+  device?: string;
 }
 
 export enum AppView {
@@ -73,7 +117,8 @@ export enum AppView {
   PRACTICE_WRITING = 'PRACTICE_WRITING',
   PRACTICE_PINYIN = 'PRACTICE_PINYIN',
   PRACTICE_FILL_IN_BLANKS = 'PRACTICE_FILL_IN_BLANKS',
-  REPORT = 'REPORT'
+  REPORT = 'REPORT',
+  STICKER_STORE = 'STICKER_STORE'
 }
 
 export interface GradingResult {

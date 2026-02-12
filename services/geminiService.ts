@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
 
 // Lazy initialization of AI instance
@@ -60,7 +61,7 @@ export const playPronunciation = async (text: string) => {
           model: "gemini-2.5-flash-preview-tts",
           contents: [{ parts: [{ text: text }] }],
           config: {
-              responseModalities: ["AUDIO"] as any, 
+              responseModalities: [Modality.AUDIO], 
               speechConfig: {
                   voiceConfig: {
                       prebuiltVoiceConfig: { voiceName: 'Kore' }
@@ -69,8 +70,17 @@ export const playPronunciation = async (text: string) => {
           }
       });
       
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) throw new Error("No audio data returned");
+      const part = response.candidates?.[0]?.content?.parts?.[0];
+      
+      if (!part || !part.inlineData || !part.inlineData.data) {
+          // Check if we got text back instead (error description or refusal)
+          if (part && part.text) {
+             console.warn("Gemini TTS returned text:", part.text);
+          }
+          throw new Error("No audio data returned in response");
+      }
+
+      const base64Audio = part.inlineData.data;
 
       const audioBuffer = await decodeAudioData(
           decode(base64Audio),
@@ -129,11 +139,157 @@ export const generateLobbyBackground = async (): Promise<string | null> => {
   }
 };
 
+// --- Offline Sticker Generator ---
+const EMOJI_MAP: Record<string, string[]> = {
+    // Animals
+    'cat': ['🐱', '🐈', '😻', '😸', '😹', '😽'], 
+    'dog': ['🐶', '🐕', '🐩', '🐕‍🦺', '🦴'], 
+    'tiger': ['🐯', '🐅'],
+    'panda': ['🐼'], 'dragon': ['🐲', '🐉'], 'rabbit': ['🐰', '🐇'], 'monkey': ['🐵', '🐒', '🙈', '🙉', '🙊'],
+    'bear': ['🐻', '🧸', '🐻‍❄️'], 'koala': ['🐨'], 'lion': ['🦁'], 'cow': ['🐮', '🐄'], 'pig': ['🐷', '🐖', '🐽'],
+    'frog': ['🐸'], 'chicken': ['🐔', '🐓', '🐣', '🐤', '🐥'], 'penguin': ['🐧'], 'bird': ['🐦', '🕊️', '🦜'],
+    'fish': ['🐟', '🐠', '🐡', '🦈', '🐳', '🐋'], 'octopus': ['🐙'], 'bug': ['🐛', '🦋', '🐝', '🐞', '🐌'],
+    
+    // Nature / Celestial
+    'star': ['⭐', '🌟', '✨', '💫', '🌠'], 'moon': ['🌙', '🌚', '🌛', '🌝'], 'sun': ['🌞', '☀️', '🌤️'], 
+    'rainbow': ['🌈'], 'cloud': ['☁️', '⛈️'], 'fire': ['🔥', '🌋'], 'water': ['💧', '🌊'], 'tree': ['🌲', '🌳', '🌴', '🌵'],
+    'flower': ['🌸', '🌺', '🌹', '🌻', '🌼', '🌷'], 'leaf': ['🍃', '🍁', '🍀'],
+    
+    // Food
+    'food': ['🍔', '🍕', '🥟', '🍜', '🍚', '🍙', '🍣', '🍱', '🍘', '🍥', '🍡'],
+    'fruit': ['🍎', '🍓', '🍇', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍑', '🍒', '🥝'],
+    'sweet': ['🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🍫', '🍬', '🍭'],
+    'drink': ['🥤', '🧋', '🍵', '🥛', '🍹'],
+
+    // Objects / Fun
+    'robot': ['🤖'], 'unicorn': ['🦄'], 'alien': ['👽', '👾'], 'ghost': ['👻'], 'poop': ['💩'],
+    'cool': ['😎', '🕶️'], 'happy': ['😄', '😊', '😁', '😆', '🤗'], 'silly': ['🤪', '😜', '😝'],
+    'love': ['❤️', '💖', '🥰', '😍', '💝', '💘'], 'party': ['🎉', '🎈', '🎊', '🎁'],
+    'music': ['🎵', '🎶', '🎹', '🎸', '🥁', '🎷', '🎺', '🎻'], 'sport': ['⚽', '🏀', '🏈', '⚾', '🎾', '🏐'],
+    'car': ['🚗', '🚕', '🚙', '🚌', '🏎️', '🚓', '🚑'], 'rocket': ['🚀', '🛸']
+};
+
+const generateFallbackSticker = (prompt: string): string => {
+    // 1. Find best emoji
+    const lower = prompt.toLowerCase();
+    let selectedEmoji = '✨'; // Default
+    
+    // Simple keyword matching
+    const keys = Object.keys(EMOJI_MAP);
+    for (const key of keys) {
+        if (lower.includes(key)) {
+            const options = EMOJI_MAP[key];
+            selectedEmoji = options[Math.floor(Math.random() * options.length)];
+            break;
+        }
+    }
+    
+    // If no keyword match, check direct containment or use fun random
+    if (selectedEmoji === '✨') {
+        const funList = ['🚀', '🎈', '🎉', '🏆', '💎', '🧸', '🎨', '🧩', '🌈', '🍦', '🎮'];
+        if (Math.random() > 0.3) {
+             selectedEmoji = funList[Math.floor(Math.random() * funList.length)];
+        }
+    }
+
+    // 2. Draw to Canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+        // Clear
+        ctx.clearRect(0, 0, 256, 256);
+        
+        // Settings
+        const cx = 128;
+        const cy = 148; // Slightly lower to center visually
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Try Noto Color Emoji first, then system fallback
+        ctx.font = '160px "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+        
+        // Drop Shadow
+        ctx.shadowColor = 'rgba(0,0,0,0.2)';
+        ctx.shadowBlur = 15;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 8;
+
+        // White Stroke (Sticker Border)
+        ctx.lineWidth = 20;
+        ctx.strokeStyle = 'white';
+        ctx.lineJoin = 'round';
+        ctx.strokeText(selectedEmoji, cx, cy);
+        
+        // Reset Shadow for fill to avoid double shadow blur
+        ctx.shadowColor = 'transparent';
+        
+        // Fill Emoji
+        ctx.fillText(selectedEmoji, cx, cy);
+    }
+
+    return canvas.toDataURL('image/png');
+};
+
+export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALITY' | 'OFFLINE' = 'FAST'): Promise<string | null> => {
+  // Direct Offline Mode
+  if (modelType === 'OFFLINE') {
+      return generateFallbackSticker(prompt);
+  }
+
+  try {
+    const ai = getAI();
+    
+    // Choose model based on preference
+    const model = modelType === 'QUALITY' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+    
+    const config: any = {
+        imageConfig: {
+          aspectRatio: "1:1",
+        }
+    };
+
+    // Add imageSize only for Pro model (not supported on Flash Image)
+    if (modelType === 'QUALITY') {
+        config.imageConfig.imageSize = "1K";
+    }
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: {
+        parts: [
+          {
+            text: `A cute, high-quality die-cut sticker design of: ${prompt}. Vector art style, white border, vibrant colors, isolated on white background. Do not include any text, letters, or Chinese characters in the image.`
+          },
+        ],
+      },
+      config: config,
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (parts) {
+        for (const part of parts) {
+            if (part.inlineData) {
+                const base64EncodeString: string = part.inlineData.data;
+                return `data:image/png;base64,${base64EncodeString}`;
+            }
+        }
+    }
+    return null;
+  } catch (error) {
+    console.error("Error generating sticker (falling back to offline):", error);
+    // AUTOMATIC FALLBACK: If API fails (Quota/Network), use offline generator
+    return generateFallbackSticker(prompt);
+  }
+};
+
 export const getFlashcardData = async (character: string): Promise<Flashcard> => {
   try {
     const ai = getAI();
+    // Upgraded to Gemini 3 Pro for better definitions and pinyin accuracy
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-pro-preview",
       contents: {
         parts: [{
           text: `Generate flashcard data for the Chinese character: "${character}".
@@ -182,8 +338,9 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
 export const generateDistractors = async (answer: string, context: string): Promise<string[]> => {
     try {
         const ai = getAI();
+        // Upgraded to Gemini 3 Pro for smarter distractor generation
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+            model: "gemini-3-pro-preview",
             contents: {
                 parts: [{
                     text: `Generate 3 plausible but incorrect Chinese character/word options for filling in the blank. 
@@ -220,8 +377,9 @@ export const gradeHandwriting = async (
     const cleanBase64 = imageBase64.split(',')[1] || imageBase64;
 
     const ai = getAI();
+    // Upgraded to Gemini 3 Pro for superior vision analysis and grading feedback
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-pro-preview",
       contents: {
         parts: [
           {
@@ -242,7 +400,7 @@ export const gradeHandwriting = async (
 
             Provide a score from 0 to 100.
             Provide brief, constructive feedback.
-            Provide 1-3 specific correction points (e.g., "The left radical is too small", "The final stroke should be longer").
+            Provide 1-3 specific correction points (e.g. "The left radical is too small", "The final stroke should be longer").
             
             Be encouraging but honest. If the image is blank or unrecognizable as the character, give a low score.`
           }

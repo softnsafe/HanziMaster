@@ -1,3 +1,4 @@
+
 declare namespace NodeJS {
   interface ProcessEnv {
     API_KEY: string;
@@ -8,4 +9,5 @@ declare namespace NodeJS {
 interface Window {
   HanziWriter: any;
   webkitAudioContext: typeof AudioContext;
+  OpenCC: any;
 }

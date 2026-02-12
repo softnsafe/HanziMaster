@@ -195,7 +195,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                         <div className="text-white">
                             <div className="text-6xl mb-2">✅</div>
                             <div className="font-extrabold text-2xl">Correct!</div>
-                            <div className="font-mono opacity-90 mt-2 text-xl">{pinyinify(card?.pinyin || '')}</div>
+                            {/* Larger Pinyin for Success */}
+                            <div className="font-mono opacity-90 mt-2 text-4xl">{pinyinify(card?.pinyin || '')}</div>
                         </div>
                     </div>
                 )}
@@ -208,12 +209,14 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                             
                             <div className="bg-white/20 rounded-xl p-4 w-full mb-2">
                                 <div className="text-xs uppercase font-bold opacity-75 mb-1">Correct Answer</div>
-                                <div className="font-mono text-2xl font-bold">{pinyinify(card?.pinyin || '')}</div>
+                                {/* Larger Pinyin for Correct Answer */}
+                                <div className="font-mono text-4xl font-bold">{pinyinify(card?.pinyin || '')}</div>
                             </div>
 
                             <div className="bg-black/20 rounded-xl p-4 w-full">
                                 <div className="text-xs uppercase font-bold opacity-75 mb-1">You Typed</div>
-                                <div className="font-mono text-xl">{pinyinify(inputValue) || '-'}</div>
+                                {/* Larger Pinyin for User Input */}
+                                <div className="font-mono text-3xl">{pinyinify(inputValue) || '-'}</div>
                             </div>
                         </div>
                     </div>
@@ -240,7 +243,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                         <input 
                             ref={inputRef}
                             type="text" 
-                            className={`flex-1 bg-white border-2 rounded-xl px-6 py-4 text-center font-bold text-2xl text-slate-700 outline-none focus:ring-4 placeholder-slate-200 transition-colors ${attempts > 0 ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-100' : 'border-indigo-100 focus:border-indigo-400 focus:ring-indigo-50'}`}
+                            /* Increased font size to text-4xl */
+                            className={`flex-1 bg-white border-2 rounded-xl px-6 py-4 text-center font-bold text-4xl text-slate-700 outline-none focus:ring-4 placeholder-slate-200 transition-colors ${attempts > 0 ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-100' : 'border-indigo-100 focus:border-indigo-400 focus:ring-indigo-50'}`}
                             placeholder="Type here..."
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}

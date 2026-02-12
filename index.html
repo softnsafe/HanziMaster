@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -6,7 +7,9 @@
     <title>佛光山中文學校 - Homework</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- OpenCC for Character Conversion -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Nunito:wght@400;600;700;800&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
     <style>
       body {
         font-family: 'Nunito', sans-serif;
@@ -38,6 +41,21 @@
       }
       .animate-float {
         animation: float 6s ease-in-out infinite;
+      }
+      
+      /* Sticker Effect for Emojis */
+      .sticker-emoji {
+        filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.15));
+        /* White border simulation using text-shadow */
+        text-shadow: 
+           2px  0px 0px #fff, 
+          -2px  0px 0px #fff, 
+           0px  2px 0px #fff, 
+           0px -2px 0px #fff, 
+           1.5px 1.5px 0px #fff, 
+          -1.5px 1.5px 0px #fff, 
+           1.5px -1.5px 0px #fff, 
+          -1.5px -1.5px 0px #fff;
       }
     </style>
   <script>

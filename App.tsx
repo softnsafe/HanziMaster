@@ -12,6 +12,7 @@ import { TeacherDashboard } from './components/TeacherDashboard';
 import { PinyinGame } from './components/PinyinGame';
 import { FillInBlanksGame } from './components/FillInBlanksGame';
 import { SupportWidget } from './components/SupportWidget';
+import { LoginBackground } from './components/LoginBackground';
 import { sheetService } from './services/sheetService';
 import { convertCharacter } from './utils/characterConverter';
 
@@ -46,7 +47,8 @@ const App: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
   
   // Initialize with existence check so it starts as "Online" if hardcoded URL exists
-  const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl());
+  const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl() || sheetService.isDemoMode());
+  const [isDemo, setIsDemo] = useState(sheetService.isDemoMode());
 
   // Check configuration on load
   useEffect(() => {
@@ -61,11 +63,14 @@ const App: React.FC = () => {
             // Clean the URL so the token isn't visible in the browser bar
             window.history.replaceState({}, '', window.location.pathname);
             setIsConfigured(true);
+            setIsDemo(false);
         } catch (e) {
             console.error("Failed to parse backend param");
         }
     } else {
-        setIsConfigured(!!sheetService.getUrl());
+        const demo = sheetService.isDemoMode();
+        setIsDemo(demo);
+        setIsConfigured(!!sheetService.getUrl() || demo);
     }
 
     // 2. Load cached background
@@ -94,8 +99,12 @@ const App: React.FC = () => {
       setIsSaving(true);
       try {
           await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED');
-          // We do NOT save individual records anymore to prevent rate limiting.
-          // Only the status 'COMPLETED' is synced.
+          
+          // Award points for completion!
+          const result = await sheetService.updatePoints(student.id, 5, "Completed Assignment");
+          if (result.success && result.points) {
+              setStudent(prev => prev ? { ...prev, points: result.points! } : null);
+          }
       } catch (e) {
           console.error("Failed to complete assignment", e);
       } finally {
@@ -104,15 +113,33 @@ const App: React.FC = () => {
       }
   };
 
-  // Refreshes student history from the backend
+  // Refreshes student history AND profile (points/stickers) from the backend
   const refreshUserData = async () => {
       if (!student) return;
       try {
-        // forceRefresh = true
+        // 1. Refresh History
         const history = await sheetService.getStudentHistory(student.name, true);
         setPracticeRecords(history);
+        
+        // 2. Refresh Profile (Points, Stickers, Permissions) via silent re-login
+        // We use the existing login credentials state if available
+        if (loginName && loginPassword || isDemo) {
+             const result = await sheetService.loginStudent({
+                 id: student.id, // ID is ignored by backend login lookup, but kept for type safety
+                 name: loginName || student.name,
+                 password: loginPassword,
+                 joinedAt: student.joinedAt,
+                 scriptPreference: student.scriptPreference,
+                 points: 0,
+                 stickers: []
+             });
+             
+             if (result.success && result.student) {
+                 setStudent(result.student);
+             }
+        }
       } catch (e) {
-        console.error("Failed to refresh user history", e);
+        console.error("Failed to refresh user data", e);
       }
   };
 
@@ -125,18 +152,21 @@ const App: React.FC = () => {
     const nameVal = loginName.trim();
     const passVal = loginPassword.trim();
 
-    if (nameVal && passVal) {
+    if (nameVal && (passVal || isDemo)) {
       setIsLoggingIn(true);
       
       // Ensure we start with a clean cache to avoid stale data from previous sessions
       sheetService.clearAllCache();
 
-      const tempStudent: Student = {
+      const tempStudent: any = {
         id: Date.now().toString(),
         name: nameVal,
         password: passVal,
         joinedAt: new Date().toISOString(),
-        scriptPreference: scriptPref
+        scriptPreference: scriptPref,
+        points: 0,
+        stickers: [],
+        userAgent: navigator.userAgent // Send device info
       };
       
       const result = await sheetService.loginStudent(tempStudent);
@@ -149,10 +179,18 @@ const App: React.FC = () => {
          if (lowerName === 'ms. huang' || lowerName === 'teacher') {
             setCurrentView(AppView.TEACHER_DASHBOARD);
          } else {
-            // Force refresh history on login
-            const history = await sheetService.getStudentHistory(result.student.name, true);
-            setPracticeRecords(history);
-            setCurrentView(AppView.DASHBOARD);
+            // Check Class Status for Students
+            const status = await sheetService.getClassStatus();
+            
+            if (!status.isOpen) {
+                setLoginError("⛔ The class is currently closed by the teacher.");
+                setStudent(null);
+            } else {
+                // Force refresh history on login
+                const history = await sheetService.getStudentHistory(result.student.name, true);
+                setPracticeRecords(history);
+                setCurrentView(AppView.DASHBOARD);
+            }
          }
       } else {
          if (result.message === "Backend not configured") {
@@ -227,7 +265,7 @@ const App: React.FC = () => {
     if (nextCount >= 3) {
         if (!student) return;
 
-        // Local state update ONLY - No backend save here
+        // 1. Prepare Record
         const currentTarget = practiceQueue[queueIndex];
         const newRecord: PracticeRecord = {
             id: Date.now().toString(),
@@ -239,12 +277,22 @@ const App: React.FC = () => {
             type: 'WRITING'
         };
 
-        // Update local records to reflect progress in UI if needed, 
-        // though Writing view uses queueIndex/practiceCount mostly.
+        // 2. Optimistic Update (Show in UI immediately)
         setPracticeRecords(prev => [...prev, newRecord]);
         
-        // Don't move next here, user clicks button in modal.
-        // Modal calls handleNextWritingCharacter
+        // 3. Save to Backend (Progress Recording)
+        setIsSaving(true);
+        try {
+            await sheetService.savePracticeRecord(student.name, newRecord);
+            // Also update assignment status to IN_PROGRESS if not already started
+            if (currentLesson) {
+               await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
+            }
+        } catch (e) {
+            console.error("Failed to save progress", e);
+        } finally {
+            setIsSaving(false);
+        }
     }
   };
   
@@ -265,7 +313,18 @@ const App: React.FC = () => {
         setPracticeRecords(prev => [...prev, newRecord]);
       }
 
-      // REMOVED: Backend sync. We now wait for the game to report completion.
+      // Save to backend immediately
+      setIsSaving(true);
+      try {
+          await sheetService.savePracticeRecord(student.name, newRecord);
+          if (currentLesson) {
+             await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
+          }
+      } catch (e) {
+          console.error("Failed to save generic record", e);
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   const handleGameComplete = async () => {
@@ -281,50 +340,8 @@ const App: React.FC = () => {
   const renderLogin = () => (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden transition-all duration-700">
       
-      {/* BACKGROUND LAYER - FIXED & FULLSCREEN */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700"
-        style={{ 
-             backgroundImage: bgImage ? `url(${bgImage})` : 'linear-gradient(to bottom right, #bae6fd, #e0f2fe, #eff6ff)', // Sky Gradient
-             backgroundColor: '#f0f9ff'
-        }}
-      >
-        {/* Optional overlay to improve text readability if needed */}
-        {bgImage && <div className="absolute inset-0 bg-black/10"></div>}
-
-        {/* Fallback Background Decorations (only if no AI image) */}
-        {!bgImage && (
-            <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
-                {/* Subtle Grid */}
-                <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#475569 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
-                
-                {/* Cloud 1 - Top Left */}
-                <div className="absolute top-10 left-[5%] text-white w-48 animate-float drop-shadow-lg opacity-90" style={{ animationDuration: '8s' }}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.5,19c-3.037,0-5.5-2.463-5.5-5.5c0-0.34,0.032-0.673,0.091-1C9.224,12.783,5,15.111,5,18c0,0.552,0.448,1,1,1h11.5 C17.948,19,18,19,17.5,19z M19,5.5c-3.037,0-5.5,2.463-5.5,5.5c0,0.573,0.09,1.123,0.252,1.641C13.235,12.21,12.636,12,12,12 c-3.313,0-6,2.687-6,6c0,0.485,0.063,0.957,0.174,1.408C6.113,19.224,6,19.096,6,19h13c2.761,0,5-2.239,5-5S21.761,9,19,9V5.5z" /></svg>
-                </div>
-                
-                {/* Cloud 2 - Top Right */}
-                <div className="absolute top-24 right-[10%] text-white w-32 animate-float drop-shadow-md opacity-80" style={{ animationDuration: '12s', animationDelay: '1s' }}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.5 12c.276 0 .548.026.812.072C18.675 8.653 15.65 6 12 6c-3.23 0-5.96 2.067-6.84 5h-.66c-2.485 0-4.5 2.015-4.5 4.5S2.015 20 4.5 20h14c3.037 0 5.5-2.463 5.5-5.5S21.537 9 18.5 9z" /></svg>
-                </div>
-
-                {/* Cloud 3 - Middle Left */}
-                <div className="absolute top-[45%] left-[-2%] text-white/80 w-64 animate-float drop-shadow-sm opacity-60" style={{ animationDuration: '15s', animationDelay: '2s' }}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,5.5c-3.037,0-5.5,2.463-5.5,5.5c0,0.573,0.09,1.123,0.252,1.641C13.235,12.21,12.636,12,12,12 c-3.313,0-6,2.687-6,6c0,0.485,0.063,0.957,0.174,1.408C6.113,19.224,6,19.096,6,19h13c2.761,0,5-2.239,5-5S21.761,9,19,9V5.5z" /></svg>
-                </div>
-
-                {/* Cloud 4 - Bottom Right */}
-                <div className="absolute bottom-[15%] right-[5%] text-white w-56 animate-float drop-shadow-xl opacity-80" style={{ animationDuration: '10s', animationDelay: '0.5s' }}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.5,19c-3.037,0-5.5-2.463-5.5-5.5c0-0.34,0.032-0.673,0.091-1C9.224,12.783,5,15.111,5,18c0,0.552,0.448,1,1,1h11.5 C17.948,19,18,19,17.5,19z M19,5.5c-3.037,0-5.5,2.463-5.5,5.5c0,0.573,0.09,1.123,0.252,1.641C13.235,12.21,12.636,12,12,12 c-3.313,0-6,2.687-6,6c0,0.485,0.063,0.957,0.174,1.408C6.113,19.224,6,19.096,6,19h13c2.761,0,5-2.239,5-5S21.761,9,19,9V5.5z" /></svg>
-                </div>
-
-                {/* Cloud 5 - Bottom Left Small */}
-                <div className="absolute bottom-[25%] left-[15%] text-white/70 w-24 animate-float drop-shadow-sm opacity-70" style={{ animationDuration: '9s', animationDelay: '3s' }}>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.5 12c.276 0 .548.026.812.072C18.675 8.653 15.65 6 12 6c-3.23 0-5.96 2.067-6.84 5h-.66c-2.485 0-4.5 2.015-4.5 4.5S2.015 20 4.5 20h14c3.037 0 5.5-2.463 5.5-5.5S21.537 9 18.5 9z" /></svg>
-                </div>
-            </div>
-        )}
-      </div>
+      {/* Optimized Background Component - Only renders when bgImage changes */}
+      <LoginBackground bgImage={bgImage} />
 
       {/* Status Indicator & Setup */}
       <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3">
@@ -338,13 +355,15 @@ const App: React.FC = () => {
             </button>
             <div 
                 className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm shadow-sm transition-all border select-none ${
-                    isConfigured 
+                    isDemo 
+                    ? 'bg-white/90 backdrop-blur text-purple-600 border-purple-200'
+                    : isConfigured 
                     ? 'bg-white/90 backdrop-blur text-emerald-600 border-emerald-200' 
                     : 'bg-white/90 backdrop-blur text-rose-600 border-rose-200'
                 }`}
             >
-                <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                {isConfigured ? 'System Online' : 'Offline'}
+                <div className={`w-2 h-2 rounded-full ${isDemo ? 'bg-purple-400' : isConfigured ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                {isDemo ? 'Demo Mode' : isConfigured ? 'System Online' : 'Offline'}
             </div>
           </div>
       </div>
@@ -382,28 +401,31 @@ const App: React.FC = () => {
                   <input 
                     name="password" 
                     type={showPassword ? "text" : "password"} 
-                    required
-                    value={loginPassword}
+                    required={!isDemo} // Not required in demo
+                    disabled={isDemo} // Disabled in demo
+                    value={isDemo ? 'demo-pass' : loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="Enter password"
-                    className="w-full px-5 py-3.5 rounded-xl bg-white/80 border-2 border-slate-100 focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-50/50 outline-none transition-all font-bold text-slate-700 placeholder-slate-300 pr-12"
+                    placeholder={isDemo ? "Not needed for demo" : "Enter password"}
+                    className="w-full px-5 py-3.5 rounded-xl bg-white/80 border-2 border-slate-100 focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-50/50 outline-none transition-all font-bold text-slate-700 placeholder-slate-300 pr-12 disabled:opacity-60 disabled:bg-slate-50"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors z-10"
-                  >
-                    {showPassword ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    )}
-                  </button>
+                  {!isDemo && (
+                    <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors z-10"
+                    >
+                        {showPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                        </svg>
+                        ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        )}
+                    </button>
+                  )}
                 </div>
             </div>
             
@@ -429,7 +451,7 @@ const App: React.FC = () => {
             </div>
 
           {loginError && (
-              <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold">
+              <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold animate-bounce-in">
                   {loginError}
               </div>
           )}
@@ -437,9 +459,9 @@ const App: React.FC = () => {
           <button 
             type="submit" 
             disabled={isLoggingIn}
-            className="w-full text-lg font-bold py-3.5 rounded-xl bg-sky-400 text-white shadow-[0_4px_0_rgb(14,165,233)] hover:bg-sky-500 hover:shadow-[0_4px_0_rgb(2,132,199)] active:shadow-none active:translate-y-[4px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`w-full text-lg font-bold py-3.5 rounded-xl shadow-[0_4px_0_rgb(14,165,233)] hover:bg-sky-500 hover:shadow-[0_4px_0_rgb(2,132,199)] active:shadow-none active:translate-y-[4px] transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDemo ? 'bg-purple-500 shadow-[0_4px_0_rgb(147,51,234)] hover:bg-purple-600 hover:shadow-[0_4px_0_rgb(126,34,206)]' : 'bg-sky-400 text-white'}`}
           >
-            {isLoggingIn ? 'Checking...' : 'Login'}
+            {isLoggingIn ? 'Checking...' : isDemo ? 'Start Demo' : 'Login'}
           </button>
           
           <div className="pt-4 text-center">
@@ -455,7 +477,9 @@ const App: React.FC = () => {
       {/* MODALS */}
       {showSetup && <SetupModal onClose={() => {
             setShowSetup(false);
-            setIsConfigured(!!sheetService.getUrl());
+            const demo = sheetService.isDemoMode();
+            setIsDemo(demo);
+            setIsConfigured(!!sheetService.getUrl() || demo);
       }} />}
     </div>
   );
@@ -469,7 +493,7 @@ const App: React.FC = () => {
            <div className="bg-white p-10 rounded-[2rem] shadow-xl text-center max-w-lg border border-indigo-50">
              <div className="text-6xl mb-6 animate-bounce">🎉</div>
              <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Lesson Complete!</h2>
-             <p className="text-slate-500 font-bold mb-8">You've practiced all characters.</p>
+             <p className="text-slate-500 font-bold mb-8">You've practiced all characters. +5 Points!</p>
              <Button onClick={() => setCurrentView(AppView.DASHBOARD)} className="w-full py-3 text-lg">
                 Return to Dashboard
              </Button>
@@ -520,7 +544,7 @@ const App: React.FC = () => {
                             handleWritingRoundComplete();
                             const toast = document.createElement('div');
                             toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[60]';
-                            toast.innerText = 'Good Job! (+1)';
+                            toast.innerText = 'Good Job!';
                             document.body.appendChild(toast);
                             setTimeout(() => toast.remove(), 2000);
                         }}

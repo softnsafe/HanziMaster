@@ -1,7 +1,5 @@
 
-
-// A lightweight mapping for common characters to demonstrate functionality.
-// Expanded to cover common HSK1/2 chars and radicals.
+// Fallback mapping for when OpenCC is not available (though it should be via index.html)
 const SIMP_TO_TRAD: Record<string, string> = {
   '爱': '愛', '国': '國', '马': '馬', '鸟': '鳥', '书': '書',
   '学': '學', '见': '見', '电': '電', '车': '車', '长': '長',
@@ -43,8 +41,31 @@ const TRAD_TO_SIMP: Record<string, string> = Object.entries(SIMP_TO_TRAD).reduce
   return acc;
 }, {} as Record<string, string>);
 
+let openCCConverterCN: any = null; // t -> cn
+let openCCConverterTW: any = null; // cn -> tw
+
 export const convertCharacter = (text: string, targetScript: 'Simplified' | 'Traditional'): string => {
+  try {
+    if (window.OpenCC) {
+        if (!openCCConverterCN) {
+            // Initialize converters if not already done
+            openCCConverterCN = window.OpenCC.Converter({ from: 't', to: 'cn' });
+            openCCConverterTW = window.OpenCC.Converter({ from: 'cn', to: 'tw' });
+        }
+
+        if (targetScript === 'Simplified') {
+            // Convert Traditional (or mixed) to Simplified
+            return openCCConverterCN(text);
+        } else {
+            // Convert Simplified (or mixed) to Traditional
+            return openCCConverterTW(text);
+        }
+    }
+  } catch (e) {
+    console.warn("OpenCC conversion failed, falling back to local map", e);
+  }
+
+  // Fallback to local map
   const map = targetScript === 'Traditional' ? SIMP_TO_TRAD : TRAD_TO_SIMP;
-  // iterate through string to convert each character if possible
   return text.split('').map(char => map[char] || char).join('');
 };

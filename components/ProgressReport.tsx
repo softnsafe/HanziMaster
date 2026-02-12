@@ -22,14 +22,12 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
 
   const loadData = async (force = false) => {
     setIsLoading(true);
-    const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
 
     try {
         const [fetchedAssignments, fetchedStatuses, fetchedHistory] = await Promise.all([
             sheetService.getAssignments(force),
             sheetService.getAssignmentStatuses(student.id, force),
-            sheetService.getStudentHistory(student.name, force),
-            minLoadTime
+            sheetService.getStudentHistory(student.name, force)
         ]);
         setAssignments(fetchedAssignments);
         setStatuses(fetchedStatuses);
