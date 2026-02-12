@@ -4,13 +4,23 @@ import { Sticker } from '../types';
 // Helper to convert Google Drive sharing links to usable image sources
 export const convertDriveLink = (url: string): string => {
     if (!url) return '';
+    // Return immediately if it's a data URL or already converted
+    if (url.startsWith('data:')) return url;
+    if (url.includes('lh3.googleusercontent.com')) return url;
+
     try {
-        // Handle: https://drive.google.com/file/d/FILE_ID/view...
-        // Handle: https://drive.google.com/open?id=FILE_ID
-        const idMatch = url.match(/[-\w]{25,}/);
-        if (idMatch) {
-            const id = idMatch[0];
-            return `https://lh3.googleusercontent.com/d/${id}=s400`; // =s400 requests a 400px width thumbnail (efficient)
+        // 1. Look for ID in query params (id=...)
+        // 2. Look for ID in path (/d/...)
+        // Google Drive IDs are typically 33 characters (alphanumeric + - _)
+        
+        // Regex for ID: 25+ characters of alphanumeric, hyphen, underscore
+        const idRegex = /[-\w]{25,}/;
+        const match = url.match(idRegex);
+        
+        if (match && (url.includes('drive.google.com') || url.includes('docs.google.com'))) {
+            const id = match[0];
+            // =s400 requests a 400px width thumbnail (efficient & bypasses CORS often)
+            return `https://lh3.googleusercontent.com/d/${id}=s400`; 
         }
     } catch (e) {
         console.warn("Failed to parse Drive link", e);

@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
 import { Student, StoreItem } from '../types';
-import { STICKER_CATALOG } from '../utils/stickerData';
+import { STICKER_CATALOG, convertDriveLink } from '../utils/stickerData';
 import { sheetService } from '../services/sheetService';
 import { generateSticker } from '../services/geminiService';
 
@@ -210,11 +210,13 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                         {storeItems.map(item => {
                                             const isOwned = ownedIds.includes(item.id);
                                             const canAfford = student.points >= item.cost;
+                                            // Apply conversion here to ensure image loads
+                                            const displayImage = convertDriveLink(item.imageUrl);
 
                                             return (
                                                 <div key={item.id} className={`p-4 rounded-2xl border-2 flex flex-col items-center transition-all ${isOwned ? 'bg-emerald-50 border-emerald-200 opacity-80' : 'bg-white border-slate-100 shadow-sm'}`}>
                                                     <div className="aspect-square w-full mb-3 rounded-xl overflow-hidden bg-slate-100 relative">
-                                                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                                                        <img src={displayImage} alt={item.name} className="w-full h-full object-cover" />
                                                     </div>
                                                     <div className="font-bold text-slate-700 text-sm truncate w-full text-center">{item.name}</div>
                                                     {isOwned ? (
@@ -262,9 +264,10 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                         <div className="grid grid-cols-4 sm:grid-cols-6 gap-4">
                                             {uniqueOwnedStandard.map((s, idx) => {
                                                 if (!s) return null;
+                                                const displayImage = convertDriveLink(s.imageUrl || '');
                                                 return (
                                                     <div key={`${s.id}-${idx}`} className="aspect-square bg-white rounded-2xl flex flex-col items-center justify-center border-2 border-slate-100 shadow-sm hover:scale-105 transition-transform overflow-hidden relative" title={s.name}>
-                                                        {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{(s as any).emoji}</div>}
+                                                        {s.imageUrl ? <img src={displayImage} className="w-full h-full object-cover" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{(s as any).emoji}</div>}
                                                     </div>
                                                 );
                                             })}
