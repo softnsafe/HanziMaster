@@ -39,6 +39,7 @@ const App: React.FC = () => {
   // UI State
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [offlineToast, setOfflineToast] = useState(false);
   
   // Sync State ('idle' | 'saving' | 'saved')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -153,6 +154,7 @@ const App: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    setOfflineToast(false);
     
     const nameVal = loginName.trim();
     const passVal = loginPassword.trim();
@@ -177,6 +179,11 @@ const App: React.FC = () => {
       const result = await sheetService.loginStudent(tempStudent);
 
       if (result.success && result.student) {
+         // Check if this was an offline fallback login
+         if (result.message && result.message.includes('Offline')) {
+             setOfflineToast(true);
+         }
+
          // Teacher Detection Logic (Case Insensitive)
          const lowerName = result.student.name.toLowerCase();
          if (lowerName === 'ms. huang' || lowerName === 'teacher') {
@@ -225,6 +232,7 @@ const App: React.FC = () => {
     setShowPassword(false);
     setLoginName('');
     setLoginPassword('');
+    setOfflineToast(false);
   };
 
   const handleStartPractice = async (lesson: Lesson, mode: PracticeMode) => {
@@ -613,7 +621,17 @@ const App: React.FC = () => {
                style={{ backgroundImage: bgImage ? `url(${bgImage})` : '', backgroundSize: 'cover', backgroundAttachment: 'fixed', backgroundPosition: 'center' }}>
              
              {/* SYNC INDICATOR */}
-             <div className="fixed top-6 right-6 z-50 transition-all duration-500">
+             <div className="fixed top-6 right-6 z-50 transition-all duration-500 flex flex-col items-end gap-2">
+                {offlineToast && (
+                     <div className="bg-amber-100/90 backdrop-blur-md px-4 py-2 rounded-xl shadow-xl border border-amber-200 flex items-center gap-2 animate-bounce-in max-w-xs">
+                        <span className="text-xl">⚠️</span>
+                        <div className="flex flex-col">
+                            <span className="text-xs font-black text-amber-800 uppercase tracking-wide">Offline Mode</span>
+                            <span className="text-[10px] font-bold text-amber-600">Progress saved locally</span>
+                        </div>
+                     </div>
+                )}
+
                 {saveStatus === 'saving' && (
                     <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-indigo-100 flex items-center gap-2 animate-bounce-in">
                         <span className="animate-spin text-lg">☁️</span>

@@ -357,6 +357,33 @@ export const sheetService = {
       if (data.status === 'success') return { success: true, student: data.student || student };
       return { success: false, message: data.message || "Login failed" };
     } catch (e: any) { 
+        // OFFLINE / CORS FALLBACK
+        const msg = e.message || '';
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Connection Blocked') || msg.includes('Access denied')) {
+             console.warn("Login offline fallback");
+             
+             // Queue the login for stats later
+             this.addToQueue('login', {
+                name: student.name,
+                password: student.password,
+                scriptPreference: student.scriptPreference,
+                userAgent: student.userAgent || ''
+             });
+
+             // Return a mock student object so the user can still practice
+             return { 
+                 success: true, 
+                 student: { 
+                     ...student, 
+                     id: `offline-${Date.now()}`, 
+                     points: 0, 
+                     stickers: [],
+                     canCreateStickers: false
+                 },
+                 message: "Logged in Offline. Progress will sync when connection is restored."
+             };
+        }
+
         return { success: false, message: `System busy (${e.message}). Please retry.` }; 
     }
   },
