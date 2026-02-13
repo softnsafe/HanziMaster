@@ -1046,8 +1046,8 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                             <div className="space-y-2">
                                 <p className="text-rose-800 text-sm font-bold">Solution: Check Permissions</p>
                                 <ol className="list-decimal list-inside text-rose-800 space-y-1 text-xs font-medium">
-                                    <li>Copy v3.9 Code below & Paste into Apps Script.</li>
-                                    <li className="font-bold bg-rose-200 px-1 rounded inline-block">Click Deploy -> New Deployment.</li>
+                                    <li>Copy v3.9 Code below &amp; Paste into Apps Script.</li>
+                                    <li className="font-bold bg-rose-200 px-1 rounded inline-block">Click Deploy &rarr; New Deployment.</li>
                                     <li>Execute as: <strong>Me</strong>.</li>
                                     <li>Who has access: <strong className="bg-rose-200 px-1 rounded text-rose-900">Anyone</strong> (NOT 'Anyone with Account'!).</li>
                                     <li>Copy the <strong>NEW URL</strong>.</li>
