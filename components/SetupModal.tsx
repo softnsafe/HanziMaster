@@ -9,7 +9,7 @@ interface SetupModalProps {
 
 const APPS_SCRIPT_CODE = `
 // CONFIGURATION
-const VERSION = 'v3.5'; // Teacher Disconnect Control
+const VERSION = 'v3.6'; // Improved LoginLogs Robustness
 // Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
@@ -77,6 +77,18 @@ function setup() {
     logSheet = ss.insertSheet('LoginLogs');
     logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'Device']);
     logSheet.setFrozenRows(1);
+  } else {
+    // Upgrade existing sheet safely
+    const lastCol = logSheet.getLastColumn();
+    if (lastCol > 0) {
+        const headers = logSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+        if (headers.indexOf('Device') === -1) {
+             logSheet.getRange(1, headers.length + 1).setValue('Device');
+        }
+    } else {
+        // Sheet exists but is empty (user cleared it)
+        logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'Device']);
+    }
   }
 
   let pointLogSheet = ss.getSheetByName('PointLogs');
@@ -241,6 +253,23 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
 
         <div className="flex flex-col flex-1 overflow-hidden p-6 overflow-y-auto">
             <div className="space-y-8">
+                {/* 403 Error Guide - Updated to catch generic fetch errors too */}
+                {status === 'error' && (statusMsg.includes('Blocked') || statusMsg.includes('Access Denied') || statusMsg.includes('Failed to fetch')) && (
+                    <div className="bg-rose-50 border border-rose-100 rounded-2xl p-6 animate-bounce-in">
+                        <h3 className="text-rose-700 font-black text-lg mb-2 flex items-center gap-2">
+                             ⚠️ How to Fix "Access Denied"
+                        </h3>
+                        <ol className="list-decimal list-inside text-rose-800 space-y-2 text-sm font-medium">
+                            <li>Go to your Google Apps Script editor.</li>
+                            <li>Click the blue <strong>Deploy</strong> button (top right) → <strong>Manage deployments</strong>.</li>
+                            <li>Click the <span className="text-lg">✎</span> <strong>Edit</strong> icon next to your active deployment.</li>
+                            <li><strong>CRITICAL:</strong> Change "Who has access" to <u>Everyone</u> (or "Anyone").</li>
+                            <li>Click <strong>Deploy</strong>.</li>
+                        </ol>
+                        <p className="mt-3 text-xs text-rose-600 font-bold">Note: "Anyone with Google Account" will NOT work. It must be "Anyone".</p>
+                    </div>
+                )}
+
                 {/* Demo Mode Option */}
                 <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex items-center justify-between">
                     <div>
@@ -266,7 +295,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
                     <div className="flex items-center justify-between">
                          <h3 className="font-bold text-slate-700">1. Google Apps Script Code</h3>
                          <button onClick={copyCode} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg font-bold border border-indigo-100 hover:bg-indigo-100">
-                             📋 Copy v3.5 Code
+                             📋 Copy v3.6 Code
                          </button>
                     </div>
 

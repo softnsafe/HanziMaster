@@ -40,8 +40,8 @@ const App: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   
-  // Sync State
-  const [isSaving, setIsSaving] = useState(false);
+  // Sync State ('idle' | 'saving' | 'saved')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   
   // Initialize with existence check so it starts as "Online" if hardcoded URL exists
   const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl() || sheetService.isDemoMode());
@@ -89,24 +89,32 @@ const App: React.FC = () => {
       localStorage.removeItem('hanzi_master_bg_theme');
   };
 
+  // Helper to handle save state transitions
+  const performSave = async (operation: () => Promise<any>) => {
+      setSaveStatus('saving');
+      try {
+          await operation();
+          setSaveStatus('saved');
+          // Revert to idle (synced) after 2 seconds
+          setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch (e) {
+          console.error("Save failed", e);
+          setSaveStatus('idle');
+      }
+  };
+
   // Helper to sync completion at the end of assignment
   const completeAssignment = async (lessonId: string) => {
       if (!student) return;
       
-      setIsSaving(true);
-      try {
+      await performSave(async () => {
           await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED');
-          
           // Award points for completion!
           const result = await sheetService.updatePoints(student.id, 5, "Completed Assignment");
           if (result.success && result.points) {
               setStudent(prev => prev ? { ...prev, points: result.points! } : null);
           }
-      } catch (e) {
-          console.error("Failed to complete assignment", e);
-      } finally {
-          setIsSaving(false);
-      }
+      });
   };
 
   // Refreshes student history AND profile (points/stickers) from the backend
@@ -121,13 +129,14 @@ const App: React.FC = () => {
         // We use the existing login credentials state if available
         if (loginName && loginPassword || isDemo) {
              const result = await sheetService.loginStudent({
-                 id: student.id, // ID is ignored by backend login lookup, but kept for type safety
+                 id: student.id, 
                  name: loginName || student.name,
                  password: loginPassword,
                  joinedAt: student.joinedAt,
                  scriptPreference: student.scriptPreference,
                  points: 0,
-                 stickers: []
+                 stickers: [],
+                 userAgent: navigator.userAgent // Ensure we keep logging the device
              });
              
              if (result.success && result.student) {
@@ -284,18 +293,13 @@ const App: React.FC = () => {
         setPracticeRecords(prev => [...prev, newRecord]);
         
         // 3. Save to Backend (Progress Recording)
-        setIsSaving(true);
-        try {
+        await performSave(async () => {
             await sheetService.savePracticeRecord(student.name, newRecord);
             // Also update assignment status to IN_PROGRESS if not already started
             if (currentLesson) {
                await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
             }
-        } catch (e) {
-            console.error("Failed to save progress", e);
-        } finally {
-            setIsSaving(false);
-        }
+        });
     }
   };
   
@@ -317,17 +321,12 @@ const App: React.FC = () => {
       }
 
       // Save to backend immediately
-      setIsSaving(true);
-      try {
+      await performSave(async () => {
           await sheetService.savePracticeRecord(student.name, newRecord);
           if (currentLesson) {
              await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
           }
-      } catch (e) {
-          console.error("Failed to save generic record", e);
-      } finally {
-          setIsSaving(false);
-      }
+      });
   };
 
   const handleGameComplete = async () => {
@@ -614,13 +613,20 @@ const App: React.FC = () => {
                style={{ backgroundImage: bgImage ? `url(${bgImage})` : '', backgroundSize: 'cover', backgroundAttachment: 'fixed', backgroundPosition: 'center' }}>
              
              {/* SYNC INDICATOR */}
-             <div className="fixed top-6 right-6 z-50">
-                {isSaving ? (
+             <div className="fixed top-6 right-6 z-50 transition-all duration-500">
+                {saveStatus === 'saving' && (
                     <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-indigo-100 flex items-center gap-2 animate-bounce-in">
                         <span className="animate-spin text-lg">☁️</span>
                         <span className="text-xs font-extrabold text-indigo-500 uppercase tracking-wide">Saving...</span>
                     </div>
-                ) : (
+                )}
+                {saveStatus === 'saved' && (
+                    <div className="bg-emerald-500/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-emerald-400 flex items-center gap-2 animate-bounce-in text-white">
+                        <span className="text-lg">✅</span>
+                        <span className="text-xs font-extrabold uppercase tracking-wide">Saved!</span>
+                    </div>
+                )}
+                {saveStatus === 'idle' && (
                     <div className="bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/50 flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
                          <span className="text-lg">☁️</span>
                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Synced</span>

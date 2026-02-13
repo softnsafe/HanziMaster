@@ -3,6 +3,7 @@ import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, S
 
 const STORAGE_KEY = 'hanzi_master_backend_url_v2';
 const DEMO_KEY = 'hanzi_master_demo_mode';
+const QUEUE_KEY = 'hanzi_offline_queue';
 const ENV_URL = process.env.REACT_APP_BACKEND_URL || ''; 
 
 // Caching Logic
@@ -12,6 +13,13 @@ interface CacheEntry<T> {
 }
 const CACHE_TTL = 5 * 60 * 1000;
 const cache: Record<string, CacheEntry<any>> = {};
+
+// Offline Queue
+let offlineQueue: any[] = [];
+try {
+    const savedQ = localStorage.getItem(QUEUE_KEY);
+    if (savedQ) offlineQueue = JSON.parse(savedQ);
+} catch (e) { console.error("Failed to load offline queue", e); }
 
 const getFromCache = <T>(key: string): T | null => {
     const entry = cache[key];
@@ -31,22 +39,61 @@ const invalidateCache = (keyPattern: string) => {
     });
 };
 
+// --- URL Cleaning Helper ---
+const cleanUrl = (url: string): string => {
+    let clean = url.trim();
+    if (!clean) return '';
+    if (!clean.startsWith('http')) clean = 'https://' + clean;
+    
+    // Auto-fix common paste errors
+    if (clean.includes('/edit')) clean = clean.split('/edit')[0] + '/exec';
+    else if (clean.includes('/dev')) clean = clean.split('/dev')[0] + '/exec'; // Fix dev links (require auth) to exec (public)
+    else if (clean.endsWith('/')) clean = clean.slice(0, -1);
+    
+    // Ensure it ends in /exec if it looks like a script url
+    if (clean.includes('script.google.com') && !clean.endsWith('/exec')) {
+        if (!clean.endsWith('/')) clean += '/exec';
+        else clean += 'exec';
+    }
+    return clean;
+};
+
+// Helper: Fetch with Timeout to avoid hanging indefinitely
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 10000): Promise<Response> => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (e: any) {
+        clearTimeout(id);
+        if (e.name === 'AbortError') {
+             throw new Error("Request timed out. Check internet connection.");
+        }
+        throw e;
+    }
+};
+
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
         throw new Error("No internet connection");
     }
     try {
-        const response = await fetch(url, options);
+        const response = await fetchWithTimeout(url, options);
         if (!response.ok) {
             if (response.status === 404) throw new Error("Script URL not found (404). Check deployment URL.");
-            if (response.status === 403) throw new Error("Access denied (403). Check script permissions.");
+            if (response.status === 403) throw new Error("Access denied (403). Permissions must be set to 'Anyone'.");
             if (response.status >= 500) throw new Error(`Server Error ${response.status}`);
         }
         return response;
     } catch (err: any) {
         // Handle CORS/Network failure specifically for Google Apps Script
-        if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+        const msg = err.message || '';
+        // Chrome says "Failed to fetch", Firefox says "NetworkError..."
+        if (err.name === 'TypeError' && (msg === 'Failed to fetch' || msg.includes('NetworkError'))) {
              console.error("CORS/Network Error:", err);
+             // We propagate this so checkConnection can catch it and do the probe
              throw new Error("Connection Blocked. Ensure Google Script is deployed as 'Web App' with access set to 'Anyone'.");
         }
 
@@ -64,35 +111,22 @@ const parseResponse = async (response: Response) => {
     try {
         return JSON.parse(text);
     } catch (e) {
+        // Detect HTML error pages which indicate wrong URL or permissions
+        if (text.trim().startsWith('<') || text.includes('<!DOCTYPE html>')) {
+            if (text.includes('Sign in') || text.includes('Google Accounts')) {
+                throw new Error("Access Denied: Script permission must be 'Anyone', not 'Anyone with Google Account'.");
+            }
+            throw new Error("Invalid Server Response (HTML). Check Backend URL.");
+        }
         console.error("Invalid JSON response:", text.substring(0, 200));
-        throw new Error("Invalid Server Response. The backend URL might be incorrect or the script has crashed.");
+        throw new Error("Invalid JSON from server.");
     }
 };
-
-// --- MOCK DATA FOR DEMO MODE ---
-const MOCK_LESSONS: Lesson[] = [
-    { id: 'demo-1', title: 'Demo: Greetings', description: 'Basic greetings in Chinese', characters: ['你好', '谢谢', '再见'], startDate: new Date().toISOString(), type: 'WRITING' },
-    { id: 'demo-2', title: 'Demo: Animals', description: 'Learn animal names', characters: ['猫', '狗', '熊猫'], startDate: new Date().toISOString(), type: 'PINYIN' },
-    { id: 'demo-3', title: 'Demo: Sentences', description: 'Build simple sentences', characters: ['我#爱#妈妈', '他#是#老师'], startDate: new Date().toISOString(), type: 'FILL_IN_BLANKS' }
-];
-
-const MOCK_EVENTS: CalendarEvent[] = [
-    { id: 'evt-1', date: new Date().toISOString().split('T')[0], title: 'Demo Day', type: 'SPECIAL_EVENT', description: 'Testing the system' }
-];
-
-const MOCK_STORE: StoreItem[] = [
-    { id: 'demo-s1', name: 'Golden Dragon', imageUrl: 'https://lh3.googleusercontent.com/d/1234=s400', cost: 100, category: 'STORE', active: true },
-    { id: 'demo-s2', name: 'Magic Potion', imageUrl: 'https://lh3.googleusercontent.com/d/5678=s400', cost: 50, category: 'STORE', active: true },
-];
 
 export const sheetService = {
   getUrl(): string { 
       let url = localStorage.getItem(STORAGE_KEY) || ENV_URL; 
-      url = url.trim();
-      // Robust check: if the user pasted an /edit URL, fix it automatically
-      if (url && url.includes('/edit')) {
-          return url.split('/edit')[0] + '/exec';
-      }
+      url = cleanUrl(url); // Ensure we always read a clean URL
       return url;
   },
   
@@ -105,20 +139,7 @@ export const sheetService = {
   },
 
   saveUrl(url: string) {
-    let clean = url.trim();
-    if (!clean.startsWith('http')) clean = 'https://' + clean;
-    
-    // Auto-fix common paste errors
-    if (clean.includes('/edit')) clean = clean.split('/edit')[0] + '/exec';
-    else if (clean.includes('/dev')) clean = clean.split('/dev')[0] + '/exec'; // Fix dev links (require auth) to exec (public)
-    else if (clean.endsWith('/')) clean = clean.slice(0, -1);
-    
-    // Ensure it ends in /exec if it looks like a script url
-    if (clean.includes('script.google.com') && !clean.endsWith('/exec')) {
-        if (!clean.endsWith('/')) clean += '/exec';
-        else clean += 'exec';
-    }
-
+    const clean = cleanUrl(url);
     localStorage.setItem(STORAGE_KEY, clean);
     this.setDemoMode(false); // Disable demo if setting a real URL
     this.clearAllCache();
@@ -126,43 +147,108 @@ export const sheetService = {
 
   clearAllCache() { Object.keys(cache).forEach(key => delete cache[key]); },
 
+  // QUEUE MANAGEMENT
+  async processQueue() {
+      if (offlineQueue.length === 0 || this.isDemoMode()) return;
+      const url = this.getUrl();
+      if (!url) return;
+
+      // Try sending the oldest item
+      const item = offlineQueue[0];
+      try {
+          // We use standard fetch here to avoid infinite loops with our wrapper
+          const response = await fetch(url, {
+              method: 'POST',
+              credentials: 'omit',
+              redirect: 'follow',
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify(item)
+          });
+          
+          if (response.ok) {
+              offlineQueue.shift(); // Remove success
+              localStorage.setItem(QUEUE_KEY, JSON.stringify(offlineQueue));
+              if (offlineQueue.length > 0) this.processQueue(); // Process next
+          }
+      } catch (e) {
+          // Still offline, stop processing
+      }
+  },
+
+  addToQueue(action: string, payload: any) {
+      offlineQueue.push({ action, payload, timestamp: Date.now() });
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(offlineQueue));
+  },
+
   async checkConnection(testConfig?: { sheetUrl?: string }): Promise<{ success: boolean; message?: string }> {
       if (this.isDemoMode()) return { success: true, message: "Demo Mode Active" };
 
-      const url = testConfig ? testConfig.sheetUrl : this.getUrl();
+      // Use cleanUrl on the input to ensure we test the corrected URL
+      const rawUrl = testConfig ? testConfig.sheetUrl : this.getUrl();
+      const url = cleanUrl(rawUrl || '');
+
       if (!url) return { success: false, message: "Google Sheet URL is missing" };
+      
       try {
-          const response = await fetch(`${url}?action=health`, { 
+          // 1. Standard Attempt
+          const response = await fetchWithTimeout(`${url}?action=health`, { 
               method: 'GET', 
               credentials: 'omit', 
               redirect: 'follow',
               cache: 'no-cache'
-          });
+          }, 8000); // 8s timeout
+
           const data = await parseResponse(response);
-          if (data.status === 'success') return { success: true, message: `Connected (v${data.version})` };
+          if (data.status === 'success') {
+              this.processQueue(); // Try flushing queue on success
+              return { success: true, message: `Connected (v${data.version})` };
+          }
           return { success: false, message: "Invalid response from script." };
+
       } catch (e: any) { 
           console.error("Connection Check Failed:", e);
-          if (e.message && e.message.includes('Connection Blocked')) {
-             return { success: false, message: e.message }; 
+          const msg = e.message || '';
+          
+          // 2. DIAGNOSTIC PROBE: Differentiate between "Server Down" vs "Permission Denied (CORS)"
+          // If the error is "Failed to fetch" (Chrome) or "NetworkError" (Firefox/Safari),
+          // it could mean the URL is wrong OR the server rejected the OPTIONS request (CORS).
+          if (e.name === 'TypeError' || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Blocked')) {
+              try {
+                  // Attempt a 'no-cors' request. 
+                  // If the server exists, this will succeed (opaque response).
+                  // If the server does NOT exist, this will still throw.
+                  await fetch(`${url}?action=health`, {
+                      method: 'GET',
+                      mode: 'no-cors', 
+                      credentials: 'omit'
+                  });
+                  
+                  // If we get here, the server is reachable but blocking us.
+                  return { success: false, message: "Connection Blocked. The Backend URL works, but access is denied. Click ⚙️ to fix." };
+              } catch (probeError) {
+                  // If probing also fails, the URL is likely wrong or internet is down.
+                  return { success: false, message: "Connection Failed. Check your URL and Internet." };
+              }
           }
-          if (e.message && e.message.includes('Failed to fetch')) {
-             return { success: false, message: "Connection Blocked. Ensure Script is deployed as 'Web App' and access is 'Anyone'." }; 
+
+          if (msg.includes('Connection Blocked') || msg.includes('Access Denied')) {
+             return { success: false, message: msg }; 
           }
-          return { success: false, message: e.message }; 
+          return { success: false, message: msg }; 
       }
   },
 
-  // --- NEW CLASS STATUS METHODS ---
+  // --- METHODS ---
+
   async getClassStatus(): Promise<{ success: boolean; isOpen: boolean }> {
       if (this.isDemoMode()) return { success: true, isOpen: true };
-      const url = this.getUrl(); if (!url) return { success: false, isOpen: true }; // Default to open if offline
+      const url = this.getUrl(); if (!url) return { success: false, isOpen: true }; 
       try {
           const response = await fetchWithRetry(`${url}?action=getClassStatus&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
           const data = await parseResponse(response);
           return { success: true, isOpen: data.classStatus !== 'CLOSED' };
       } catch(e) {
-          return { success: false, isOpen: true }; // Fail open if error
+          return { success: false, isOpen: true }; 
       }
   },
 
@@ -180,7 +266,7 @@ export const sheetService = {
   },
 
   async getStoreItems(forceRefresh = false): Promise<StoreItem[]> {
-      if (this.isDemoMode()) return MOCK_STORE;
+      if (this.isDemoMode()) return []; // Mock data handled in Dashboard
       const cacheKey = 'store_items';
       if (!forceRefresh) { const cached = getFromCache<StoreItem[]>(cacheKey); if (cached) return cached; }
       
@@ -253,6 +339,7 @@ export const sheetService = {
     const url = this.getUrl();
     if (!url) return { success: false, message: "Backend not configured" };
     try {
+      this.processQueue(); // Try to flush logs
       const response = await fetchWithRetry(url, {
         method: 'POST', credentials: 'omit', redirect: 'follow',
         headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -262,7 +349,6 @@ export const sheetService = {
                 name: student.name,
                 password: student.password,
                 scriptPreference: student.scriptPreference,
-                // Only send necessary fields to minimize payload issues
                 userAgent: student.userAgent ? String(student.userAgent).substring(0, 100) : ''
             }
         })
@@ -270,11 +356,13 @@ export const sheetService = {
       const data = await parseResponse(response);
       if (data.status === 'success') return { success: true, student: data.student || student };
       return { success: false, message: data.message || "Login failed" };
-    } catch (e: any) { return { success: false, message: `System busy (${e.message}). Please retry.` }; }
+    } catch (e: any) { 
+        return { success: false, message: `System busy (${e.message}). Please retry.` }; 
+    }
   },
 
   async getAssignments(forceRefresh = false): Promise<Lesson[]> {
-    if (this.isDemoMode()) return MOCK_LESSONS;
+    if (this.isDemoMode()) return [];
 
     const cacheKey = 'assignments';
     if (!forceRefresh) { const cached = getFromCache<Lesson[]>(cacheKey); if (cached) return cached; }
@@ -289,8 +377,7 @@ export const sheetService = {
   },
 
   async getCalendarEvents(forceRefresh = false): Promise<CalendarEvent[]> {
-    if (this.isDemoMode()) return MOCK_EVENTS;
-
+    if (this.isDemoMode()) return [];
     const cacheKey = 'calendar_events';
     if (!forceRefresh) { const cached = getFromCache<CalendarEvent[]>(cacheKey); if (cached) return cached; }
     const url = this.getUrl(); if (!url) return [];
@@ -347,9 +434,7 @@ export const sheetService = {
   },
 
   async getAllStudentProgress(forceRefresh = false, startDate?: string, endDate?: string): Promise<StudentSummary[]> {
-    if (this.isDemoMode()) return [
-        { id: 'demo-student', name: 'Demo Student', assignmentsCompleted: 5, assignmentsInProgress: 1, averageScore: 95, lastActive: new Date().toISOString(), totalPracticed: 20, points: 100, canCreateStickers: true }
-    ];
+    if (this.isDemoMode()) return [];
 
     const cacheKey = `all_student_progress_${startDate || 'all'}_${endDate || 'all'}`;
     if (!forceRefresh) { const cached = getFromCache<StudentSummary[]>(cacheKey); if (cached) return cached; }
@@ -393,7 +478,11 @@ export const sheetService = {
       });
       invalidateCache(`statuses_${studentId}`);
       invalidateCache('all_student_progress');
-    } catch (e) {}
+      this.processQueue(); // Good time to flush
+    } catch (e) {
+        // Queue if network fails
+        this.addToQueue('updateAssignmentStatus', { studentId, assignmentId, status });
+    }
   },
 
   async updatePoints(studentId: string, delta: number, reason: string): Promise<{ success: boolean; points?: number }> {
@@ -550,7 +639,12 @@ export const sheetService = {
       await fetchWithRetry(url, { method: 'POST', credentials: 'omit', redirect: 'follow', keepalive: true, headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: 'saveRecord', payload: { studentName, ...record } }) });
       invalidateCache(`history_${studentName}`);
       invalidateCache('all_student_progress');
-    } catch (e) {}
+      this.processQueue(); // Good time to flush
+    } catch (e) {
+        // Queue data locally if connection fails
+        console.warn("Connection unstable. Queuing record for later.");
+        this.addToQueue('saveRecord', { studentName, ...record });
+    }
   },
 
   async getStudentHistory(studentName: string, forceRefresh = false): Promise<PracticeRecord[]> {

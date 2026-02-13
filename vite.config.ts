@@ -9,7 +9,6 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     // Base public path when served in development or production.
-    // Setting this to './' allows the app to be deployed to any subdirectory (e.g., GitHub Pages).
     base: './', 
     define: {
       // Provide empty string fallback for specific keys to prevent crashes
@@ -22,6 +21,18 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
       // Minify output for production
       minify: 'esbuild',
+      // Increase chunk size limit to silence warnings for large vendor libraries
+      chunkSizeWarningLimit: 1000, 
+      rollupOptions: {
+        output: {
+          // Split vendor chunks for better caching
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom'],
+            'genai': ['@google/genai'],
+            'hanzi-writer': ['hanzi-writer']
+          }
+        }
+      }
     }
   };
 });

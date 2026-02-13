@@ -1,6 +1,6 @@
 
 // CONFIGURATION
-const VERSION = 'v3.5'; // Teacher Disconnect Control
+const VERSION = 'v3.6'; // Improved LoginLogs Robustness
 // Leave empty to use the sheet where this script is bound (Recommended)
 const SHEET_ID = ''; 
 
@@ -69,10 +69,16 @@ function setup() {
     logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'Device']);
     logSheet.setFrozenRows(1);
   } else {
-    // Upgrade existing sheet
-    const headers = logSheet.getRange(1, 1, 1, logSheet.getLastColumn()).getValues()[0];
-    if (headers.indexOf('Device') === -1) {
-         logSheet.getRange(1, headers.length + 1).setValue('Device');
+    // Upgrade existing sheet safely
+    const lastCol = logSheet.getLastColumn();
+    if (lastCol > 0) {
+        const headers = logSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+        if (headers.indexOf('Device') === -1) {
+             logSheet.getRange(1, headers.length + 1).setValue('Device');
+        }
+    } else {
+        // Sheet exists but is empty (user cleared it)
+        logSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'Device']);
     }
   }
 
