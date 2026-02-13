@@ -192,10 +192,12 @@ const App: React.FC = () => {
             }
          }
       } else {
-         if (result.message === "Backend not configured") {
+         if (result.message && result.message.includes("Backend not configured")) {
              setLoginError("App is Offline. Please click the gear icon ⚙️ above to setup.");
-             // Force gear icon to show if backend is missing
              setIsConfigured(false);
+         } else if (result.message && result.message.includes("Connection Blocked")) {
+             // Handle the specific CORS error with a helpful message
+             setLoginError("⚠️ Connection Blocked. The Backend URL works, but access is denied. Click ⚙️ to fix.");
          } else {
              setLoginError(result.message || 'Login failed');
          }

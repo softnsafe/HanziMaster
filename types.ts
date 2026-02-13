@@ -47,6 +47,7 @@ export interface Student {
   stickers: string[]; // Array of sticker IDs (standard or custom)
   customStickers?: CustomStickerData[]; // Hydrated custom stickers
   canCreateStickers?: boolean; // Permission flag
+  userAgent?: string;
 }
 
 export interface StudentSummary {

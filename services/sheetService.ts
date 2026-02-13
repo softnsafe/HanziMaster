@@ -37,14 +37,35 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, ba
     }
     try {
         const response = await fetch(url, options);
-        if (response.status >= 500 && response.status < 600) throw new Error(`Server Error ${response.status}`);
+        if (!response.ok) {
+            if (response.status === 404) throw new Error("Script URL not found (404). Check deployment URL.");
+            if (response.status === 403) throw new Error("Access denied (403). Check script permissions.");
+            if (response.status >= 500) throw new Error(`Server Error ${response.status}`);
+        }
         return response;
-    } catch (err) {
+    } catch (err: any) {
+        // Handle CORS/Network failure specifically for Google Apps Script
+        if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+             console.error("CORS/Network Error:", err);
+             throw new Error("Connection Blocked. Ensure Google Script is deployed as 'Web App' with access set to 'Anyone'.");
+        }
+
         if (retries > 0) {
             await new Promise(resolve => setTimeout(resolve, backoff));
             return fetchWithRetry(url, options, retries - 1, backoff * 2);
         }
         throw err;
+    }
+};
+
+// Helper to safely parse JSON response, handling HTML error pages from Google
+const parseResponse = async (response: Response) => {
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        console.error("Invalid JSON response:", text.substring(0, 200));
+        throw new Error("Invalid Server Response. The backend URL might be incorrect or the script has crashed.");
     }
 };
 
@@ -86,8 +107,18 @@ export const sheetService = {
   saveUrl(url: string) {
     let clean = url.trim();
     if (!clean.startsWith('http')) clean = 'https://' + clean;
+    
+    // Auto-fix common paste errors
     if (clean.includes('/edit')) clean = clean.split('/edit')[0] + '/exec';
+    else if (clean.includes('/dev')) clean = clean.split('/dev')[0] + '/exec'; // Fix dev links (require auth) to exec (public)
     else if (clean.endsWith('/')) clean = clean.slice(0, -1);
+    
+    // Ensure it ends in /exec if it looks like a script url
+    if (clean.includes('script.google.com') && !clean.endsWith('/exec')) {
+        if (!clean.endsWith('/')) clean += '/exec';
+        else clean += 'exec';
+    }
+
     localStorage.setItem(STORAGE_KEY, clean);
     this.setDemoMode(false); // Disable demo if setting a real URL
     this.clearAllCache();
@@ -107,16 +138,16 @@ export const sheetService = {
               redirect: 'follow',
               cache: 'no-cache'
           });
-          const text = await response.text();
-          try {
-              const data = JSON.parse(text);
-              if (data.status === 'success') return { success: true, message: `Connected (v${data.version})` };
-          } catch(e) {}
+          const data = await parseResponse(response);
+          if (data.status === 'success') return { success: true, message: `Connected (v${data.version})` };
           return { success: false, message: "Invalid response from script." };
       } catch (e: any) { 
           console.error("Connection Check Failed:", e);
+          if (e.message && e.message.includes('Connection Blocked')) {
+             return { success: false, message: e.message }; 
+          }
           if (e.message && e.message.includes('Failed to fetch')) {
-             return { success: false, message: "Connection Blocked. Try 'Demo Mode' if using AI Studio/Sandboxes." }; 
+             return { success: false, message: "Connection Blocked. Ensure Script is deployed as 'Web App' and access is 'Anyone'." }; 
           }
           return { success: false, message: e.message }; 
       }
@@ -128,7 +159,7 @@ export const sheetService = {
       const url = this.getUrl(); if (!url) return { success: false, isOpen: true }; // Default to open if offline
       try {
           const response = await fetchWithRetry(`${url}?action=getClassStatus&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-          const data = await response.json();
+          const data = await parseResponse(response);
           return { success: true, isOpen: data.classStatus !== 'CLOSED' };
       } catch(e) {
           return { success: false, isOpen: true }; // Fail open if error
@@ -156,7 +187,7 @@ export const sheetService = {
       const url = this.getUrl(); if (!url) return [];
       try {
           const response = await fetchWithRetry(`${url}?action=getStoreItems&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-          const data = await response.json();
+          const data = await parseResponse(response);
           const items = data.items || [];
           setCache(cacheKey, items);
           return items;
@@ -200,7 +231,7 @@ export const sheetService = {
               headers: { "Content-Type": "text/plain;charset=utf-8" },
               body: JSON.stringify({ action: 'testDriveSave', payload: { dataUrl } })
           });
-          const data = await response.json();
+          const data = await parseResponse(response);
           if (data.status === 'success') return { success: true, url: data.url };
           return { success: false, message: data.message };
       } catch (e: any) { return { success: false, message: e.message }; }
@@ -225,9 +256,18 @@ export const sheetService = {
       const response = await fetchWithRetry(url, {
         method: 'POST', credentials: 'omit', redirect: 'follow',
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: 'login', payload: student })
+        body: JSON.stringify({ 
+            action: 'login', 
+            payload: {
+                name: student.name,
+                password: student.password,
+                scriptPreference: student.scriptPreference,
+                // Only send necessary fields to minimize payload issues
+                userAgent: student.userAgent ? String(student.userAgent).substring(0, 100) : ''
+            }
+        })
       });
-      const data = await response.json();
+      const data = await parseResponse(response);
       if (data.status === 'success') return { success: true, student: data.student || student };
       return { success: false, message: data.message || "Login failed" };
     } catch (e: any) { return { success: false, message: `System busy (${e.message}). Please retry.` }; }
@@ -241,7 +281,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return [];
     try {
       const response = await fetchWithRetry(`${url}?action=getAssignments&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const lessons = data.lessons || [];
       setCache(cacheKey, lessons);
       return lessons;
@@ -256,7 +296,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return [];
     try {
       const response = await fetchWithRetry(`${url}?action=getCalendarEvents&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const events = data.events || [];
       setCache(cacheKey, events);
       return events;
@@ -299,7 +339,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return [];
     try {
       const response = await fetchWithRetry(`${url}?action=getAssignmentStatuses&studentId=${encodeURIComponent(studentId)}&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const statuses = data.statuses || [];
       setCache(cacheKey, statuses);
       return statuses;
@@ -320,7 +360,7 @@ export const sheetService = {
       if (endDate) query += `&endDate=${endDate}`;
       
       const response = await fetchWithRetry(query, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const students = data.students || [];
       setCache(cacheKey, students);
       return students;
@@ -335,7 +375,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return [];
     try {
       const response = await fetchWithRetry(`${url}?action=getLoginLogs&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const logs = data.logs || [];
       setCache(cacheKey, logs);
       return logs;
@@ -365,7 +405,7 @@ export const sheetService = {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: 'updatePoints', payload: { studentId, delta, reason } })
         });
-        const data = await response.json();
+        const data = await parseResponse(response);
         if (data.status === 'success') {
             invalidateCache('all_student_progress');
             return { success: true, points: data.points };
@@ -383,7 +423,7 @@ export const sheetService = {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: 'purchaseSticker', payload: { studentId, stickerId, cost } })
         });
-        const data = await response.json();
+        const data = await parseResponse(response);
         if (data.status === 'success') {
             invalidateCache('all_student_progress');
             return { success: true, points: data.points, stickers: data.stickers };
@@ -404,7 +444,7 @@ export const sheetService = {
                 payload: { studentId, dataUrl, prompt, cost } 
             })
         });
-        const data = await response.json();
+        const data = await parseResponse(response);
         if (data.status === 'success') {
             invalidateCache('all_student_progress');
             return { success: true, points: data.points, sticker: data.sticker };
@@ -422,7 +462,7 @@ export const sheetService = {
               headers: { "Content-Type": "text/plain;charset=utf-8" },
               body: JSON.stringify({ action: 'adminGivePoints', payload: { studentIds, delta, reason } })
           });
-          const data = await response.json();
+          const data = await parseResponse(response);
           if (data.status === 'success') {
               invalidateCache('all_student_progress');
               return { success: true };
@@ -443,7 +483,7 @@ export const sheetService = {
                   payload: { studentIds, sticker } 
               })
           });
-          const data = await response.json();
+          const data = await parseResponse(response);
           if (data.status === 'success') {
               invalidateCache('all_student_progress');
               return { success: true };
@@ -461,7 +501,7 @@ export const sheetService = {
               headers: { "Content-Type": "text/plain;charset=utf-8" },
               body: JSON.stringify({ action: 'updatePermission', payload: { studentId, canCreate } })
           });
-          const data = await response.json();
+          const data = await parseResponse(response);
           if (data.status === 'success') {
               invalidateCache('all_student_progress');
               return { success: true };
@@ -475,7 +515,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return { success: false, message: "Backend URL is missing." };
     try {
       const response = await fetchWithRetry(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: 'createAssignment', payload: lesson }) });
-      const data = await response.json();
+      const data = await parseResponse(response);
       if (data.status === 'success') { invalidateCache('assignments'); return { success: true }; }
       return { success: false, message: data.message };
     } catch (e: any) { return { success: false, message: "Network connection failed" }; }
@@ -486,7 +526,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return { success: false, message: "Backend URL is missing." };
     try {
       const response = await fetchWithRetry(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: 'editAssignment', payload: lesson }) });
-      const data = await response.json();
+      const data = await parseResponse(response);
       if (data.status === 'success') { invalidateCache('assignments'); return { success: true }; }
       return { success: false, message: data.message };
     } catch (e: any) { return { success: false, message: "Network connection failed" }; }
@@ -497,7 +537,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return { success: false, message: "Backend URL is missing." };
     try {
       const response = await fetchWithRetry(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: 'deleteAssignment', payload: { id } }) });
-      const data = await response.json();
+      const data = await parseResponse(response);
       if (data.status === 'success') { invalidateCache('assignments'); return { success: true }; }
       return { success: false, message: data.message };
     } catch (e: any) { return { success: false, message: "Network connection failed" }; }
@@ -521,7 +561,7 @@ export const sheetService = {
     const url = this.getUrl(); if (!url) return [];
     try {
       const response = await fetchWithRetry(`${url}?action=getHistory&studentName=${encodeURIComponent(studentName)}&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
-      const data = await response.json();
+      const data = await parseResponse(response);
       const records = data.records || [];
       setCache(cacheKey, records);
       return records;
