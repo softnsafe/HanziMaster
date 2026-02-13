@@ -1,6 +1,4 @@
 
-/** @jsx React.createElement */
-/** @jsxFrag React.Fragment */
 import React, { useEffect, useState } from 'react';
 import { Lesson, Student, StudentAssignment, PracticeMode, PracticeRecord, CalendarEvent, AppView, StoreItem } from '../types';
 import { Button } from './Button';
@@ -210,43 +208,62 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                              { id: 'FILL_IN_BLANKS' as PracticeMode, icon: '🧩', label: 'Sentence Builder', desc: 'Lego-style grammar.', color: 'purple' }
                          ].map(mode => (
                              <div key={mode.id} onClick={() => setSelectedMode(mode.id)} className={`group bg-white rounded-[2.5rem] p-8 shadow-xl border-4 border-transparent hover:border-${mode.color}-100 transition-all cursor-pointer hover:-translate-y-1`}>
-                                 <div className={`w-16 h-16 bg-${mode.color}-100 text-${mode.color}-600 rounded-3xl flex items-center justify-center text-4xl mb-4`}>{mode.icon}</div>
-                                 <h3 className="text-xl font-extrabold text-slate-800">{mode.label}</h3>
-                                 <p className="text-slate-500 font-bold text-sm">{mode.desc}</p>
+                                 <div className={`w-16 h-16 bg-${mode.color}-100 rounded-2xl flex items-center justify-center text-4xl mb-4 group-hover:scale-110 transition-transform`}>
+                                     {mode.icon}
+                                 </div>
+                                 <h3 className="text-2xl font-extrabold text-slate-800 mb-2">{mode.label}</h3>
+                                 <p className="text-slate-500 font-medium">{mode.desc}</p>
+                                 <div className={`mt-6 py-2 px-4 rounded-xl bg-${mode.color}-50 text-${mode.color}-600 font-bold text-sm inline-block`}>
+                                     {visibleAssignments.filter(a => a.type === mode.id).length} Active Tasks
+                                 </div>
                              </div>
                          ))}
                      </div>
                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredAssignments.length > 0 ? (
-                        filteredAssignments.map((lesson, idx) => {
-                            const isDone = isModeDone(lesson, selectedMode);
-                            const status = getStatus(lesson.id);
-                            const isCompleted = isDone || status === 'COMPLETED';
-                            const isInProgress = status === 'IN_PROGRESS' && !isCompleted;
-
-                            return (
-                                <div key={lesson.id} className={`bg-white rounded-[2rem] p-6 shadow-lg border-2 transition-all hover:-translate-y-1 ${isCompleted ? 'border-emerald-200' : isInProgress ? 'border-amber-200' : 'border-indigo-100'}`}>
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center font-bold text-slate-400">#{idx + 1}</div>
-                                        {isCompleted && <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">Completed</span>}
-                                        {isInProgress && <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">Active</span>}
-                                    </div>
-                                    <h3 className="font-bold text-lg text-slate-800 mb-1">{lesson.title}</h3>
-                                    <p className="text-slate-500 text-sm mb-6 line-clamp-2">{lesson.description}</p>
-                                    <Button onClick={() => onStartPractice(lesson, selectedMode)} className="w-full" variant={isCompleted ? 'outline' : 'primary'}>
-                                        {isCompleted ? 'Practice Again' : isInProgress ? 'Continue' : 'Start'}
-                                    </Button>
-                                </div>
-                            );
-                        })
-                        ) : (
-                        <div className="col-span-full text-center py-16 bg-white rounded-[2rem] border-2 border-dashed border-slate-200">
-                            <p className="text-slate-500 font-bold mb-4">No assignments yet. Take a break! ☕</p>
-                            <Button variant="ghost" onClick={() => setSelectedMode(null)}>Back to Modes</Button>
-                        </div>
-                        )}
-                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                         {filteredAssignments.length > 0 ? filteredAssignments.map(lesson => {
+                             const status = getStatus(lesson.id);
+                             return (
+                                 <div key={lesson.id} className="bg-white rounded-[2.5rem] p-8 shadow-lg border-2 border-slate-100 hover:border-indigo-200 transition-all flex flex-col justify-between">
+                                     <div>
+                                         <div className="flex justify-between items-start mb-4">
+                                             <h3 className="text-xl font-bold text-slate-800 line-clamp-2">{lesson.title}</h3>
+                                             {status === 'COMPLETED' ? (
+                                                 <span className="text-xl">✅</span>
+                                             ) : status === 'IN_PROGRESS' ? (
+                                                 <span className="text-xl">⏳</span>
+                                             ) : (
+                                                 <span className="text-xl">🆕</span>
+                                             )}
+                                         </div>
+                                         <p className="text-slate-500 text-sm mb-6 line-clamp-3">{lesson.description || "No description provided."}</p>
+                                         <div className="flex items-center gap-2 mb-6">
+                                             <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                                 {lesson.characters.length} Items
+                                             </div>
+                                             {lesson.endDate && (
+                                                 <div className="bg-rose-50 px-3 py-1 rounded-lg text-xs font-bold text-rose-500 uppercase tracking-wider">
+                                                     Due {new Date(lesson.endDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                                                 </div>
+                                             )}
+                                         </div>
+                                     </div>
+                                     <Button 
+                                         onClick={() => onStartPractice(lesson, lesson.type)}
+                                         className={`w-full py-3 rounded-xl font-bold shadow-md ${status === 'COMPLETED' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                     >
+                                         {status === 'COMPLETED' ? 'Practice Again' : status === 'IN_PROGRESS' ? 'Continue' : 'Start'}
+                                     </Button>
+                                 </div>
+                             );
+                         }) : (
+                             <div className="col-span-full py-20 text-center text-slate-400">
+                                 <div className="text-6xl mb-4 grayscale opacity-30">📭</div>
+                                 <p className="text-xl font-bold">No assignments found for this mode.</p>
+                                 <Button variant="ghost" onClick={() => setSelectedMode(null)} className="mt-4">Go Back</Button>
+                             </div>
+                         )}
+                     </div>
                  )}
               </>
             )}

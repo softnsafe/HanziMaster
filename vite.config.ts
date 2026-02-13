@@ -22,11 +22,6 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
       // Minify output for production
       minify: 'esbuild',
-    },
-    esbuild: {
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
     }
   };
 });

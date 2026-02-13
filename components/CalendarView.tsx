@@ -1,6 +1,4 @@
 
-/** @jsx React.createElement */
-/** @jsxFrag React.Fragment */
 import React, { useState, useEffect } from 'react';
 import { CalendarEvent } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -123,7 +121,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                 }
                             `}
                         >
-                            <span className={`block text-center text-lg sm:text-xl font-black leading-none mt-1 mb-1 ${isToday ? 'text-white drop-shadow-md' : 'text-slate-400'}`}>
+                            <span className="block text-center text-lg sm:text-xl font-black leading-none mt-1 mb-1 ${isToday ? 'text-white drop-shadow-md' : 'text-slate-400'}">
                                 {day}
                             </span>
                             

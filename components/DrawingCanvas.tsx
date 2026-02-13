@@ -1,6 +1,4 @@
 
-/** @jsx React.createElement */
-/** @jsxFrag React.Fragment */
 import React from 'react';
 
 // This component is unused in the current version of the application.
