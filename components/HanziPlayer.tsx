@@ -1,5 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
+import HanziWriter from 'hanzi-writer';
 import { Button } from './Button';
 
 interface HanziPlayerProps {
@@ -14,7 +15,7 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
   onComplete 
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const writerRef = useRef<any>(null);
+  const writerRef = useRef<HanziWriter | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mode, setMode] = useState<'view' | 'quiz'>(initialMode);
 
@@ -23,11 +24,6 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
     setIsLoading(true);
     containerRef.current.innerHTML = '';
     setMode(initialMode);
-    const HanziWriter = window.HanziWriter;
-    if (!HanziWriter) {
-      if (containerRef.current) containerRef.current.innerText = "Lib missing";
-      return;
-    }
 
     try {
       writerRef.current = HanziWriter.create(containerRef.current, character, {

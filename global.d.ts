@@ -7,7 +7,6 @@ declare namespace NodeJS {
 }
 
 interface Window {
-  HanziWriter: any;
   webkitAudioContext: typeof AudioContext;
   OpenCC: any;
 }

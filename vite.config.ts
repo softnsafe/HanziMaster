@@ -28,8 +28,7 @@ export default defineConfig(({ mode }) => {
           // Split vendor chunks for better caching
           manualChunks: {
             'react-vendor': ['react', 'react-dom'],
-            'genai': ['@google/genai'],
-            'hanzi-writer': ['hanzi-writer']
+            'genai': ['@google/genai']
           }
         }
       }
