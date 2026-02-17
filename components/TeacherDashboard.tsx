@@ -51,8 +51,8 @@ const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClos
   const uniqueStandard = Array.from(new Set(ownedStandard.map(s => s.id))).map(id => ownedStandard.find(s => s.id === id)).filter(Boolean);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={onClose}>
-        <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-indigo-500/20 backdrop-blur-lg p-4 animate-fade-in" onClick={onClose}>
+        <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in border-4 border-white/20" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h3 className="text-2xl font-extrabold text-slate-800">{student.name}'s Collection</h3>
@@ -124,6 +124,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [endDate, setEndDate] = useState(() => {
      const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0];
   });
+  const [assignmentPoints, setAssignmentPoints] = useState<number>(10); // Default points
   const [customAudioMap, setCustomAudioMap] = useState<Record<string, string>>({});
   const [currentAssignedTo, setCurrentAssignedTo] = useState<string[]>([]); // Preserve assignments when editing
 
@@ -252,6 +253,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setStartDate(new Date().toISOString().split('T')[0]);
       const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
       setEndDate(nextWeek.toISOString().split('T')[0]);
+      setAssignmentPoints(10); // Reset points
       setCustomAudioMap({});
       setCurrentAssignedTo([]);
   };
@@ -276,7 +278,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           startDate,
           endDate,
           assignedTo: editingId ? currentAssignedTo : [], // Preserve assignedTo if editing
-          metadata: { customAudio: customAudioMap }
+          metadata: { 
+              customAudio: customAudioMap,
+              points: assignmentPoints
+          }
       };
 
       let res;
@@ -318,6 +323,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setStartDate(lesson.startDate ? lesson.startDate.split('T')[0] : '');
       setEndDate(lesson.endDate ? lesson.endDate.split('T')[0] : '');
       setCustomAudioMap(lesson.metadata?.customAudio || {});
+      setAssignmentPoints(lesson.metadata?.points || 10);
       setCurrentAssignedTo(lesson.assignedTo || []);
       
       // 2. Switch Tab
@@ -642,6 +648,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       </div>
                   </div>
 
+                  {/* Points Input */}
+                  <div>
+                      <InputLabel label="Points Reward" />
+                      <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border-2 border-slate-200 w-fit">
+                          <span className="text-xl">⭐</span>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="1000"
+                            value={assignmentPoints} 
+                            onChange={e => setAssignmentPoints(Number(e.target.value))} 
+                            className="w-20 bg-transparent font-black text-lg outline-none text-amber-500" 
+                          />
+                      </div>
+                  </div>
+
                   <div>
                       <InputLabel label={type === 'FILL_IN_BLANKS' ? "Sentences (One per line, use # for blanks)" : "Characters (Comma or space separated)"} />
                       <textarea value={chars} onChange={e => setChars(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-lg text-slate-900 outline-none focus:border-indigo-400" rows={5} placeholder={type === 'FILL_IN_BLANKS' ? "我#是#学生\n你好#吗" : "你, 好, 吗"} required />
@@ -719,10 +741,30 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
               <SectionHeader title="Assignment Library" />
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {assignments.map(lesson => {
+                  {assignments
+                    .slice() // Copy to avoid mutation
+                    .sort((a, b) => {
+                        // Priority 1: Creation Timestamp (from ID)
+                        const getTs = (id: string) => {
+                            if (!id || !id.includes('-')) return 0;
+                            const parts = id.split('-');
+                            const num = parseInt(parts[parts.length - 1]);
+                            return !isNaN(num) ? num : 0;
+                        };
+                        const tsA = getTs(a.id);
+                        const tsB = getTs(b.id);
+                        if (tsA > 0 && tsB > 0 && tsA !== tsB) return tsB - tsA;
+
+                        // Priority 2: Start Date
+                        const dateA = a.startDate ? new Date(a.startDate).getTime() : 0;
+                        const dateB = b.startDate ? new Date(b.startDate).getTime() : 0;
+                        return dateB - dateA;
+                    })
+                    .map(lesson => {
                       const now = new Date(); now.setHours(0,0,0,0);
                       const start = lesson.startDate ? parseLocalDate(lesson.startDate) : null;
                       const end = lesson.endDate ? parseLocalDate(lesson.endDate) : null;
+                      const points = lesson.metadata?.points || 10;
                       let status = { label: 'Active', color: 'bg-emerald-100 text-emerald-700' };
                       if (start && now < start) status = { label: 'Scheduled', color: 'bg-amber-100 text-amber-700' };
                       else if (end && now > end) status = { label: 'Expired', color: 'bg-slate-200 text-slate-500' };
@@ -730,7 +772,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       <div key={lesson.id} className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 hover:border-indigo-200 transition-all group relative">
                           <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${status.color}`}>{status.label}</div>
                           <div className="flex justify-between items-start mb-4 pr-16"><h3 className="font-extrabold text-xl text-slate-800 line-clamp-1">{lesson.title}</h3></div>
-                          <div className="mb-4"><span className="bg-white px-2 py-1 rounded-md text-xs font-bold text-slate-400 shadow-sm border border-slate-100">{lesson.type}</span></div>
+                          <div className="mb-4 flex items-center gap-2">
+                              <span className="bg-white px-2 py-1 rounded-md text-xs font-bold text-slate-400 shadow-sm border border-slate-100">{lesson.type}</span>
+                              <span className="bg-amber-100 px-2 py-1 rounded-md text-xs font-bold text-amber-600 shadow-sm border border-amber-200 flex items-center gap-1">⭐ {points}</span>
+                          </div>
                           <p className="text-slate-500 text-sm mb-4 line-clamp-2 h-10">{lesson.description}</p>
                           <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">{lesson.characters.length} Items • Due {parseLocalDate(lesson.endDate).toLocaleDateString()}</div>
                           <div className="flex gap-2 mt-4">

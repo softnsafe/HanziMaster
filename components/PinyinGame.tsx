@@ -9,28 +9,30 @@ import { convertCharacter } from '../utils/characterConverter';
 
 interface PinyinGameProps {
   lesson: Lesson;
-  initialCharacters: string[]; // Converted characters from App
+  initialCharacters: string[]; 
   onComplete: () => void;
   onExit: () => void;
   onRecordResult: (char: string, score: number, type: 'PINYIN') => void;
 }
 
 export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacters, onComplete, onExit, onRecordResult }) => {
-  // Use pre-converted characters if available, otherwise fallback to lesson default
+  // Queue Management
   const [queue, setQueue] = useState<string[]>(initialCharacters && initialCharacters.length > 0 ? initialCharacters : lesson.characters);
-  
-  const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
-  const [dictionary, setDictionary] = useState<Record<string, string>>({}); // Kept mostly for UI indicators
-  
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [mistakes, setMistakes] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const isReviewMode = mistakes.length > 0 && queue === mistakes;
+
+  // Data State
+  const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
+  const [dictionary, setDictionary] = useState<Record<string, string>>({});
+  
+  // Interaction State
   const [inputValue, setInputValue] = useState('');
-  
-  // Game State
   const [status, setStatus] = useState<'IDLE' | 'CORRECT' | 'WRONG'>('IDLE');
-  const [attempts, setAttempts] = useState(0); // Track failed attempts for current card
-  const [aiFeedback, setAiFeedback] = useState<string>(''); // Stores feedback from Gemini
+  const [attempts, setAttempts] = useState(0);
+  const [aiFeedback, setAiFeedback] = useState<string>(''); 
   
+  // UI State
   const [loadingCard, setLoadingCard] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -38,48 +40,41 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const inputRef = useRef<HTMLInputElement>(null);
 
   const currentChar = queue[currentIndex];
-  // Safe access for card
   const card = currentChar ? flashcards[currentChar] : undefined;
 
-  // Load Global Dictionary on Mount
+  // 1. Load Dictionary
   useEffect(() => {
       const loadDict = async () => {
           try {
-              // Fetch dictionary from Sheet (force refresh true)
               const dict = await sheetService.getDictionary(true);
               setDictionary(dict);
-          } catch(e) {
-              console.warn("Dictionary load failed", e);
-          }
+          } catch(e) { console.warn("Dict load fail", e); }
       };
       loadDict();
   }, []);
 
-  // Fetch card data when character changes
+  // 2. Load Card Data
   useEffect(() => {
     const loadCard = async () => {
-      if (!currentChar) return;
-      if (isFinished) return;
-      if (flashcards[currentChar]) return; // Already loaded
+      if (!currentChar || isFinished || flashcards[currentChar]) return;
 
       setLoadingCard(true);
       const data = await getFlashcardData(currentChar);
       setFlashcards(prev => ({ ...prev, [currentChar]: data }));
       setLoadingCard(false);
-      // Auto focus input
       setTimeout(() => inputRef.current?.focus(), 100);
     };
     loadCard();
   }, [currentChar, isFinished, flashcards]);
 
-  // Reset state when moving to next card
+  // 3. Reset per card
   useEffect(() => {
       setStatus('IDLE');
       setAttempts(0);
       setInputValue('');
       setAiFeedback('');
       setTimeout(() => inputRef.current?.focus(), 100);
-  }, [currentIndex]);
+  }, [currentIndex, queue]); // Depend on queue to catch review mode switches
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,62 +85,68 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
 
     let isCorrect = false;
     let feedback = '';
-    let standard = card.pinyin;
-
-    try {
-        // AI Check
-        const result = await validatePinyinWithAI(currentChar, inputValue);
-        isCorrect = result.isCorrect;
-        feedback = result.feedback;
-        standard = result.standardPinyin;
-    } catch (e) {
-        // Fallback Local Check if AI fails
-        const normalize = (str: string) => {
-            return str.trim().toLowerCase()
-                .replace(/\s+/g, '')
-                .replace(/v/g, 'ü')
-                .replace(/u:/g, 'ü');
-        };
-        isCorrect = normalize(inputValue) === normalize(card.pinyin);
-        feedback = isCorrect ? 'Correct!' : 'Incorrect';
+    
+    // Optimistic normalization check first (for speed)
+    const normalize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, '').replace(/v/g, 'ü').replace(/u:/g, 'ü');
+    if (normalize(inputValue) === normalize(card.pinyin)) {
+        isCorrect = true;
+        feedback = "Perfect!";
+    } else {
+        // Fallback to AI for fuzzy matching (tones, logic)
+        try {
+            const result = await validatePinyinWithAI(currentChar, inputValue);
+            isCorrect = result.isCorrect;
+            feedback = result.feedback;
+        } catch (e) {
+            // If AI fails, stay with the strict check result (which was false)
+            feedback = "Incorrect";
+        }
     }
 
     setIsChecking(false);
 
     if (isCorrect) {
       setStatus('CORRECT');
-      setAiFeedback(feedback || 'Great job!');
-      onRecordResult(currentChar, 100, 'PINYIN');
-      // Play sound effect?
+      setAiFeedback(feedback);
+      
+      // Only record 100 if it's the first try, otherwise 50 if they eventually got it
+      const score = attempts === 0 ? 100 : 50; 
+      onRecordResult(currentChar, score, 'PINYIN');
+      
+      // Auto-play sound on correct
+      handlePlaySound();
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
+      setAiFeedback(feedback);
       
+      // Shake effect
+      const inputEl = inputRef.current;
+      if (inputEl) {
+          inputEl.classList.add('animate-shake');
+          setTimeout(() => inputEl.classList.remove('animate-shake'), 500);
+      }
+
       if (newAttempts >= 3) {
-          setStatus('WRONG');
-          setAiFeedback(feedback || 'Incorrect');
-          setMistakes(prev => [...prev, currentChar]);
+          setStatus('WRONG'); // Give up state
+          if (!mistakes.includes(currentChar)) setMistakes(prev => [...prev, currentChar]);
           onRecordResult(currentChar, 0, 'PINYIN');
       } else {
-          // Shake effect or visual feedback could go here
-          setInputValue(''); // Clear input for retry
+          // Soft error, let them try again
+          // Don't clear input completely, let them edit
           setTimeout(() => inputRef.current?.focus(), 100);
-          // Show toast or temporary message?
       }
     }
   };
 
   const handleNext = () => {
-    // If we are at the end
     if (currentIndex >= queue.length - 1) {
-       // Check if there are mistakes to review
-       if (mistakes.length > 0) {
-           // Start review round
+       if (mistakes.length > 0 && !isReviewMode) {
+           // Enter Review Mode
            setQueue(mistakes);
-           setMistakes([]); // Clear mistakes for the new round
+           setMistakes([]); 
            setCurrentIndex(0);
        } else {
-           // Truly done
            setIsFinished(true);
        }
     } else {
@@ -156,173 +157,190 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const handlePlaySound = async () => {
       if (isPlayingAudio || !currentChar) return;
       setIsPlayingAudio(true);
-      
-      // 1. Check Assignment Override
-      let audioUrl = lesson.metadata?.customAudio?.[currentChar];
-
-      // Pass found URL (or undefined) AND the flashcard pinyin to service
-      // The service will fallback to /audio/${card.pinyin}.mp3 if Dictionary/Override fails
+      const audioUrl = lesson.metadata?.customAudio?.[currentChar];
       await playPronunciation(currentChar, audioUrl, card?.pinyin);
-      
       setIsPlayingAudio(false);
   };
 
-  // Helper to determine if we have a custom audio source
-  const hasCustomAudio = () => {
-      if (!currentChar) return false;
-      if (lesson.metadata?.customAudio?.[currentChar]) return true;
-      if (dictionary[currentChar]) return true;
-      // Check simp fallback
-      const simp = convertCharacter(currentChar, 'Simplified');
-      if (dictionary[simp]) return true;
-      return false;
-  };
-
+  // Completion Screen
   if (isFinished) {
       return (
-        <div className="max-w-xl mx-auto pt-12 animate-float">
-            <div className="bg-white p-12 rounded-[3rem] shadow-xl border-4 border-emerald-100 flex flex-col items-center text-center">
-                <div className="text-8xl mb-6 animate-bounce">🌟</div>
-                <h2 className="text-4xl font-extrabold text-emerald-600 mb-4">Awesome Job!</h2>
-                <p className="text-slate-500 text-lg mb-8 font-medium">
-                    You finished the Pinyin practice!
-                </p>
-                <Button 
-                    className="w-full max-w-xs py-4 text-xl" 
-                    onClick={onComplete}
-                >
-                    Back to Dashboard
-                </Button>
+        <div className="min-h-[80vh] flex flex-col items-center justify-center p-6 animate-fade-in">
+            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border-4 border-emerald-100 flex flex-col items-center text-center max-w-sm w-full relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-emerald-50 to-white -z-10"></div>
+                <div className="text-9xl mb-6 animate-bounce drop-shadow-md">🌟</div>
+                <h2 className="text-3xl font-extrabold text-emerald-600 mb-2">Practice Complete!</h2>
+                <p className="text-slate-500 font-bold mb-8">You've mastered these tones.</p>
+                <Button className="w-full py-4 text-lg shadow-emerald-200 shadow-lg" onClick={onComplete}>Back to Dashboard</Button>
             </div>
         </div>
       );
   }
 
-  if (!currentChar) return null;
+  // Loading State
+  if (!card && loadingCard) {
+      return (
+          <div className="min-h-[60vh] flex flex-col items-center justify-center">
+              <div className="animate-spin text-5xl mb-4">⏳</div>
+              <p className="text-slate-400 font-black uppercase tracking-widest">Loading Flashcard...</p>
+          </div>
+      );
+  }
+
+  if (!card) return null;
+
+  // Dynamic Styles based on Status
+  const getContainerStyles = () => {
+      if (status === 'CORRECT') return 'bg-emerald-50 border-emerald-200';
+      if (status === 'WRONG') return 'bg-rose-50 border-rose-200';
+      return 'bg-white border-slate-100';
+  };
+
+  const getProgressBarColor = () => {
+      if (isReviewMode) return 'bg-amber-400';
+      return 'bg-indigo-500';
+  };
 
   return (
-    <div className="max-w-md mx-auto min-h-[60vh] flex flex-col items-center justify-center p-4">
-      <div className="w-full flex justify-between items-center mb-6">
-        <Button variant="ghost" onClick={onExit}>Quit</Button>
-        <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-            {mistakes.length > 0 ? 'Reviewing Mistakes' : `Progress: ${currentIndex + 1} / ${queue.length}`}
-        </span>
+    <div className="max-w-md mx-auto min-h-screen flex flex-col p-4 font-nunito">
+      
+      {/* 1. Header & Progress */}
+      <div className="w-full flex items-center gap-4 mb-2">
+        <Button variant="ghost" onClick={onExit} className="px-2 text-slate-400 hover:text-slate-600">Quit</Button>
+        <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
+            <div 
+                className={`h-full transition-all duration-500 ease-out ${getProgressBarColor()}`} 
+                style={{ width: `${((currentIndex) / queue.length) * 100}%` }}
+            />
+        </div>
+        <div className="text-xs font-black text-slate-400 uppercase tracking-wider min-w-[3rem] text-right">
+            {isReviewMode ? 'Review' : `${currentIndex + 1}/${queue.length}`}
+        </div>
       </div>
 
-      {/* Card */}
-      <div className={`bg-white rounded-[2.5rem] p-8 shadow-xl w-full text-center border-4 relative overflow-hidden transition-all ${status === 'IDLE' && attempts > 0 ? 'border-amber-200 animate-pulse' : 'border-slate-100'}`}>
-         
-         {loadingCard ? (
-             <div className="py-20 flex flex-col items-center gap-4">
-                 <div className="animate-spin text-4xl">⏳</div>
-                 <p className="text-slate-400 font-bold text-sm">Loading word...</p>
-             </div>
-         ) : (
-            <div className="animate-fade-in space-y-6">
-                {/* Picture/Emoji */}
-                <div className="text-7xl mb-2 filter drop-shadow-md transform hover:scale-110 transition-transform cursor-default">
-                    {card?.emoji}
-                </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full gap-6">
+          
+          {/* 2. Game Card */}
+          <div className={`relative w-full max-w-sm rounded-[3rem] p-8 shadow-2xl border-4 transition-all duration-500 flex flex-col items-center justify-between min-h-[400px] ${getContainerStyles()}`}>
+                
+                {/* Status Icon Badge */}
+                {status !== 'IDLE' && (
+                    <div className={`absolute -top-6 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-lg border-4 border-white animate-bounce-in z-20 ${status === 'CORRECT' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                        {status === 'CORRECT' ? '✨' : '❌'}
+                    </div>
+                )}
 
-                {/* Character & English */}
-                <div>
-                    <h2 className="text-5xl font-serif-sc font-bold text-slate-800 mb-2 flex items-center justify-center gap-3">
-                        {currentChar}
+                {/* Content */}
+                <div className="flex flex-col items-center w-full z-10 space-y-6 flex-1 justify-center">
+                    {/* Floating Emoji */}
+                    <div className="text-8xl filter drop-shadow-xl animate-float cursor-pointer hover:scale-110 transition-transform select-none">
+                        {card.emoji}
+                    </div>
+
+                    {/* Character & Audio */}
+                    <div className="flex flex-col items-center relative">
+                        <h1 className="text-7xl font-serif-sc font-black text-slate-800 mb-2 tracking-wide drop-shadow-sm">
+                            {currentChar}
+                        </h1>
                         <button 
                             onClick={handlePlaySound}
                             disabled={isPlayingAudio}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-xl transition-all disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${ hasCustomAudio() ? 'bg-amber-100 text-amber-600 hover:bg-amber-200' : 'bg-indigo-50 text-indigo-500 hover:bg-indigo-100'}`}
-                            title={hasCustomAudio() ? "Playing from Dictionary" : "Listen"}
-                            type="button"
+                            className="absolute -right-12 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white border-2 border-indigo-100 text-indigo-500 flex items-center justify-center shadow-sm hover:scale-110 active:scale-95 transition-all"
                         >
-                            {isPlayingAudio ? (
-                                <span className="animate-pulse">🔊</span>
-                            ) : '🔊'}
+                            {isPlayingAudio ? <span className="animate-pulse">🔊</span> : '🔊'}
                         </button>
-                    </h2>
-                    <p className="text-slate-500 font-bold text-lg">{card?.definition}</p>
+                        <p className="text-slate-400 font-bold text-lg">{card.definition}</p>
+                    </div>
                 </div>
 
-                {/* Feedback Overlay */}
-                {status === 'CORRECT' && (
-                    <div className="absolute inset-0 bg-emerald-500/95 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20 p-6">
-                        <div className="text-white">
-                            <div className="text-6xl mb-2">✅</div>
-                            <div className="font-extrabold text-2xl">Correct!</div>
-                            {aiFeedback && <div className="mt-2 text-sm font-bold opacity-90 bg-emerald-600/50 px-3 py-1 rounded-lg">{aiFeedback}</div>}
-                            {/* Larger Pinyin for Success */}
-                            <div className="font-mono opacity-90 mt-2 text-4xl">{pinyinify(card?.pinyin || '')}</div>
+                {/* Input Area (Visible only when IDLE or Retry) */}
+                {status !== 'CORRECT' && status !== 'WRONG' && (
+                    <form onSubmit={handleSubmit} className="w-full mt-6 relative z-20 max-w-[280px]">
+                        <div className="relative group">
+                            <input 
+                                ref={inputRef}
+                                type="text"
+                                value={inputValue}
+                                onChange={e => setInputValue(e.target.value)}
+                                placeholder="pinyin..."
+                                className={`w-full py-2 pl-4 pr-12 text-center text-lg font-bold bg-slate-50 border-2 rounded-xl outline-none transition-all placeholder-slate-300 ${attempts > 0 ? 'border-rose-300 bg-rose-50 text-rose-600 focus:ring-4 focus:ring-rose-100' : 'border-slate-200 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50 text-slate-700'}`}
+                                disabled={isChecking}
+                                autoFocus
+                                autoComplete="off"
+                            />
+                            <button 
+                                type="submit"
+                                disabled={!inputValue || isChecking}
+                                className="absolute right-1.5 top-1.5 bottom-1.5 aspect-square bg-white rounded-lg shadow-sm border border-slate-100 text-indigo-500 flex items-center justify-center hover:bg-indigo-50 disabled:opacity-50 disabled:hover:bg-white transition-all font-bold text-sm"
+                            >
+                                {isChecking ? '...' : '➜'}
+                            </button>
                         </div>
-                    </div>
+                        {attempts > 0 && (
+                            <p className="text-center text-rose-400 text-[10px] font-bold mt-2 animate-pulse uppercase tracking-wide">
+                                {3 - attempts} tries left
+                            </p>
+                        )}
+                    </form>
                 )}
+          </div>
 
-                {status === 'WRONG' && (
-                    <div className="absolute inset-0 bg-rose-500/95 flex items-center justify-center backdrop-blur-sm animate-fade-in z-20 p-6">
-                         <div className="text-white flex flex-col items-center max-w-[90%]">
-                            <div className="text-5xl mb-2">❌</div>
-                            <div className="font-extrabold text-2xl mb-2">Don't give up!</div>
-                            {aiFeedback && <div className="mb-4 text-sm font-bold bg-rose-600/50 px-3 py-1 rounded-lg">{aiFeedback}</div>}
-                            
-                            <div className="bg-white/20 rounded-xl p-4 w-full mb-2">
-                                <div className="text-xs uppercase font-bold opacity-75 mb-1">Correct Answer</div>
-                                {/* Larger Pinyin for Correct Answer */}
-                                <div className="font-mono text-4xl font-bold">{pinyinify(card?.pinyin || '')}</div>
-                            </div>
+          {/* 3. Feedback Bar (Static under card) */}
+          {(status === 'CORRECT' || status === 'WRONG') && (
+              <div className={`w-full p-4 rounded-2xl shadow-xl animate-slide-up flex flex-col gap-3 border-4 ${status === 'CORRECT' ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                  
+                  <div className="flex justify-between items-center">
+                      <div className="flex-1 min-w-0">
+                          <h3 className={`text-lg font-extrabold mb-1 ${status === 'CORRECT' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {status === 'CORRECT' ? 'Nice work!' : 'Not quite.'}
+                          </h3>
+                          {/* AI Feedback Bubble */}
+                          <div className="bg-white/60 backdrop-blur-sm p-2 px-3 rounded-lg rounded-tl-none border border-black/5 inline-block w-full">
+                              <p className={`text-xs font-bold leading-snug ${status === 'CORRECT' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                  {aiFeedback || (status === 'CORRECT' ? "You got the tones right!" : "Check the definition and try again.")}
+                              </p>
+                          </div>
+                      </div>
+                      
+                      {/* Correct Answer Display (if wrong) */}
+                      {status === 'WRONG' && (
+                          <div className="text-right pl-3 shrink-0">
+                              <div className="text-[10px] font-black text-rose-400 uppercase mb-0.5">Correct</div>
+                              <div className="text-xl font-mono font-bold text-rose-700">{pinyinify(card.pinyin)}</div>
+                          </div>
+                      )}
+                      {status === 'CORRECT' && (
+                          <div className="text-right pl-3 shrink-0">
+                              <div className="text-[10px] font-black text-emerald-400 uppercase mb-0.5">Pinyin</div>
+                              <div className="text-xl font-mono font-bold text-emerald-700">{pinyinify(card.pinyin)}</div>
+                          </div>
+                      )}
+                  </div>
 
-                            <div className="bg-black/20 rounded-xl p-4 w-full">
-                                <div className="text-xs uppercase font-bold opacity-75 mb-1">You Typed</div>
-                                {/* Larger Pinyin for User Input */}
-                                <div className="font-mono text-3xl">{pinyinify(inputValue) || '-'}</div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-         )}
+                  <Button 
+                    onClick={handleNext} 
+                    className={`w-full py-2.5 text-lg shadow-md border-b-4 active:border-b-0 active:translate-y-1 ${status === 'CORRECT' ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-700' : 'bg-rose-500 hover:bg-rose-600 border-rose-700'}`}
+                  >
+                      Continue
+                  </Button>
+              </div>
+          )}
       </div>
 
-      {/* Input Area */}
-      {!loadingCard && (
-        <form onSubmit={handleSubmit} className="w-full mt-8 relative z-30">
-            {status === 'IDLE' ? (
-                <div className="space-y-4">
-                    <p className="text-center text-slate-400 text-xs font-bold uppercase tracking-wider">
-                        {attempts > 0 ? (
-                            <span className="text-amber-500 animate-bounce block">
-                                Try Again! You have {3 - attempts} more chances.
-                            </span>
-                        ) : (
-                            "Type Pinyin (e.g. hao3 or hǎo)"
-                        )}
-                    </p>
-                    <div className="flex gap-2">
-                        <input 
-                            ref={inputRef}
-                            type="text" 
-                            className={`flex-1 bg-white border-2 rounded-xl px-6 py-4 text-center font-bold text-4xl text-slate-700 outline-none focus:ring-4 placeholder-slate-200 transition-colors ${attempts > 0 ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-100' : 'border-indigo-100 focus:border-indigo-400 focus:ring-indigo-50'}`}
-                            placeholder="Type here..."
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            autoComplete="off"
-                            autoFocus
-                            disabled={isChecking}
-                        />
-                        <Button type="submit" className="h-full aspect-square rounded-xl text-2xl" disabled={!inputValue || isChecking}>
-                            {isChecking ? <span className="animate-spin text-sm">⏳</span> : '→'}
-                        </Button>
-                    </div>
-                </div>
-            ) : (
-                <Button 
-                    onClick={handleNext} 
-                    className="w-full py-4 text-xl shadow-xl"
-                    variant={status === 'CORRECT' ? 'primary' : 'secondary'}
-                >
-                    Next Word
-                </Button>
-            )}
-        </form>
-      )}
+      <style>{`
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .animate-shake { animation: shake 0.4s ease-in-out; }
+        .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };

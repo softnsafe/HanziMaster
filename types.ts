@@ -126,6 +126,7 @@ export interface Lesson {
   assignedTo?: string[]; // Array of student IDs. If empty/undefined, assigned to all.
   metadata?: {
     customAudio?: Record<string, string>; // Map character -> audio URL
+    points?: number; // Specific point value for this assignment
   };
 }
 

@@ -173,21 +173,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
       setShowStore(true);
   };
 
-  if (showStore) {
-      return (
-          <StickerStore 
-            student={localStudent} 
-            onUpdateStudent={(updates) => setLocalStudent(prev => ({ ...prev, ...updates }))}
-            onClose={() => setShowStore(false)} 
-            initialTab={storeTab}
-          />
-      );
-  }
-
   const isGoalReached = activeGoal && activeGoal.current >= activeGoal.target;
 
   return (
-    <div className="space-y-8 animate-fade-in pb-10">
+    <div className="space-y-8 animate-fade-in pb-10 relative">
       {/* Particles Container */}
       {particles.length > 0 && (
           <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
@@ -387,6 +376,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                          {filteredAssignments.length > 0 ? filteredAssignments.map(lesson => {
                              const status = getStatus(lesson.id);
+                             const points = lesson.metadata?.points || 10;
+                             
                              return (
                                  <div key={lesson.id} className="bg-white rounded-[2.5rem] p-8 shadow-lg border-2 border-slate-100 hover:border-indigo-200 transition-all flex flex-col justify-between">
                                      <div>
@@ -404,6 +395,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                                          <div className="flex items-center gap-2 mb-6">
                                              <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-500 uppercase tracking-wider">
                                                  {lesson.characters.length} Items
+                                             </div>
+                                             {/* Points Badge */}
+                                             <div className="bg-amber-100 px-3 py-1 rounded-lg text-xs font-bold text-amber-600 uppercase tracking-wider flex items-center gap-1">
+                                                 ⭐ {points}
                                              </div>
                                              {lesson.endDate && (
                                                  <div className="bg-rose-50 px-3 py-1 rounded-lg text-xs font-bold text-rose-500 uppercase tracking-wider">
@@ -440,7 +435,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
               <div className="bg-white rounded-[2rem] p-6 max-w-md w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in" onClick={e => e.stopPropagation()}>
                   <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100">
                       <div>
-                          <h3 className="text-xl font-extrabold text-slate-800">My Star History</h3>
+                          <h3 className="text-xl font-extrabold text-slate-800">Points History</h3>
                           <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Recent Activity</p>
                       </div>
                       <button onClick={() => setShowPointHistory(false)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold">✕</button>
@@ -450,7 +445,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                   {rewardRules.length > 0 && (
                       <div className="mb-4 bg-yellow-50 p-3 rounded-xl border border-yellow-200">
                           <h4 className="text-xs font-black text-yellow-600 uppercase mb-2 flex items-center gap-1">
-                              <span>💡</span> How to Earn Stars
+                              <span>💡</span> How to Earn Points
                           </h4>
                           <div className="space-y-1">
                               {rewardRules.map(rule => (
@@ -486,6 +481,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                   </div>
               </div>
           </div>
+      )}
+
+      {/* Sticker Store Overlay */}
+      {showStore && (
+          <StickerStore 
+            student={localStudent} 
+            onUpdateStudent={(updates) => setLocalStudent(prev => ({ ...prev, ...updates }))}
+            onClose={() => setShowStore(false)} 
+            initialTab={storeTab}
+          />
       )}
     </div>
   );

@@ -42,12 +42,12 @@ export const SetupModal: React.FC<SetupModalProps> = ({ onClose }) => {
 
   const handleSave = () => {
       sheetService.saveUrl(url);
-      window.location.reload(); // Reload to refresh app state
+      onClose(); // Close modal and let parent handle state refresh
   };
 
   const handleDemo = () => {
       sheetService.setDemoMode(true);
-      window.location.reload();
+      onClose(); // Close modal and let parent handle state refresh
   };
 
   return (

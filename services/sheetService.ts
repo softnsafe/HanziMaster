@@ -118,7 +118,13 @@ const postData = async (action: string, payload: any) => {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action, payload })
         });
-        return await parseResponse(response);
+        const data = await parseResponse(response);
+        // Normalize backend response (Code.gs returns {status: 'success'} but frontend expects {success: true})
+        if (data && typeof data === 'object') {
+            if (data.status === 'success' && data.success === undefined) data.success = true;
+            else if (data.status === 'error' && data.success === undefined) data.success = false;
+        }
+        return data;
     } catch (e: any) { return { success: false, message: e.message }; }
 };
 
@@ -287,7 +293,13 @@ export const sheetService = {
   },
 
   async getAllStudentProgress(forceRefresh = false, startDate?: string, endDate?: string): Promise<StudentSummary[]> {
-      if (this.isDemoMode()) return [];
+      if (this.isDemoMode()) {
+          return [
+              { id: 'demo-s1', name: 'Alice', points: 150, script: 'Simplified', assignmentsCompleted: 5, assignmentsInProgress: 1, totalPracticed: 45, averageScore: 92, lastActive: new Date().toISOString(), canCreateStickers: true, stickers: [], customStickers: [] },
+              { id: 'demo-s2', name: 'Bob', points: 80, script: 'Simplified', assignmentsCompleted: 2, assignmentsInProgress: 3, totalPracticed: 20, averageScore: 85, lastActive: new Date(Date.now() - 86400000).toISOString(), canCreateStickers: false, stickers: [], customStickers: [] },
+              { id: 'demo-s3', name: 'Charlie', points: 210, script: 'Traditional', assignmentsCompleted: 8, assignmentsInProgress: 0, totalPracticed: 100, averageScore: 98, lastActive: new Date().toISOString(), canCreateStickers: true, stickers: [], customStickers: [] }
+          ];
+      }
       const cacheKey = `progress_${startDate || 'all'}_${endDate || 'all'}`;
       if (!forceRefresh) { const cached = getFromCache<StudentSummary[]>(cacheKey); if (cached) return cached; }
       const url = this.getUrl(); if (!url) return [];

@@ -122,18 +122,27 @@ const App: React.FC = () => {
   const completeAssignment = async (lessonId: string) => {
       if (!student) return;
       
-      // Determine points based on rules
+      // Determine points based on rules or specific assignment points
       const completeRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_COMPLETE');
       const retryRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_RETRY');
 
-      let pointsToAward = completeRule ? completeRule.points : 10;
+      // Default logic: Use Assignment Specific Points -> Rule Points -> 10 fallback
+      let pointsToAward = 10;
       let reason = "Completed Assignment";
+
+      // Check if assignment has specific points
+      if (currentLesson && currentLesson.metadata?.points) {
+          pointsToAward = currentLesson.metadata.points;
+      } else if (completeRule) {
+          pointsToAward = completeRule.points;
+      }
 
       try {
           const statuses = await sheetService.getAssignmentStatuses(student.id);
           const currentStatus = statuses.find(s => s.assignmentId === lessonId)?.status;
           
           if (currentStatus === 'COMPLETED') {
+              // If already completed, give a smaller "retry" reward (usually 5)
               pointsToAward = retryRule ? retryRule.points : 5;
               reason = "Practice Review";
           }
@@ -536,8 +545,21 @@ const App: React.FC = () => {
       {showSetup && <SetupModal onClose={() => {
             setShowSetup(false);
             const demo = sheetService.isDemoMode();
+            const configured = !!sheetService.getUrl() || demo;
             setIsDemo(demo);
-            setIsConfigured(!!sheetService.getUrl() || demo);
+            setIsConfigured(configured);
+            
+            // If configuration changed, ensure we reset the app state to load from the new source
+            if (configured) {
+                // Clearing student logs user out
+                setStudent(null);
+                setCurrentView(AppView.LOGIN);
+                setPracticeRecords([]);
+                setLoginError('');
+                
+                // Force reload of rules from new backend
+                sheetService.getRewardRules().then(setRewardRules).catch(() => setRewardRules([]));
+            }
       }} />}
     </div>
   );

@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.25.3)
+// HANZI MASTER BACKEND SCRIPT (v3.25.5)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.25.3'; 
+const VERSION = 'v3.25.5'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -135,7 +135,6 @@ function setup() {
     dictSheet.appendRow(['Character', 'Pinyin', 'Definition', 'AudioURL']);
     dictSheet.setFrozenRows(1);
   } else {
-    // Migration for AudioURL
     var headers = dictSheet.getRange(1, 1, 1, dictSheet.getLastColumn()).getValues()[0];
     if (findColumnIndex(headers, ['audiourl', 'audio']) === -1) { 
         dictSheet.getRange(1, dictSheet.getLastColumn() + 1).setValue('AudioURL'); 
@@ -173,31 +172,17 @@ function saveMediaToDrive(dataUrl, filenamePrefix) {
     var folderId = props.getProperty('STICKER_FOLDER_ID');
     var folder;
     if (folderId) { try { folder = DriveApp.getFolderById(folderId); if (folder.isTrashed()) folder = null; } catch (e) { folder = null; } }
-    
-    // Create folder if missing
     if (!folder) {
       var folderName = "HanziMaster_Assets";
       var folders = DriveApp.getFoldersByName(folderName);
       while (folders.hasNext()) { var f = folders.next(); if (!f.isTrashed()) { folder = f; break; } }
-      if (!folder) { 
-          folder = DriveApp.createFolder(folderName); 
-          try { folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {} 
-      }
+      if (!folder) { folder = DriveApp.createFolder(folderName); try { folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {} }
       props.setProperty('STICKER_FOLDER_ID', folder.getId());
     }
-    
     var file = folder.createFile(blob);
-    
-    // CRITICAL: Attempt to make file public for students to hear/see
-    try {
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (e) {
-        // Fallback for domains that restrict "Anyone" sharing
-        try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); } catch(e2) {}
-    }
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
     
     if (contentType.includes('audio')) {
-        // Use a standard download link format that works better with HTML5 audio
         return "https://drive.google.com/uc?export=download&id=" + file.getId();
     }
     return "https://lh3.googleusercontent.com/d/" + file.getId();
@@ -589,6 +574,21 @@ function deleteStoreItem(payload) {
         if (String(data[i][0]) === String(payload.id)) { sheet.deleteRow(i + 1); return response({ status: 'success' }); }
     }
     return response({ status: 'error' });
+}
+
+function getPointLogs(studentId) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('PointLogs');
+    if (!sheet) return response({ logs: [] });
+    const data = sheet.getDataRange().getValues();
+    const logs = [];
+    for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][1]) === String(studentId)) {
+            logs.push({ timestamp: data[i][0], delta: Number(data[i][2]), reason: String(data[i][3]), balance: Number(data[i][4]) });
+            if (logs.length >= 50) break;
+        }
+    }
+    return response({ logs: logs });
 }
 
 function getClassGoals() {
@@ -988,4 +988,101 @@ function syncStudentData(payload) {
         }
     }
     return response({ status: 'success', points: calculatedPoints });
+}
+
+function getAllStudentProgress(startDate, endDate) {
+  const ss = getSpreadsheet();
+  const studentSheet = ss.getSheetByName('Students');
+  if (!studentSheet) return response({ students: [] });
+  
+  const sData = studentSheet.getDataRange().getValues();
+  if (sData.length <= 1) return response({ students: [] });
+  const sHeaders = sData[0];
+  
+  const idIdx = findColumnIndex(sHeaders, ['id']);
+  const nameIdx = findColumnIndex(sHeaders, ['name']);
+  const lastIdx = findColumnIndex(sHeaders, ['lastlogin', 'lastactive']);
+  const ptsIdx = findColumnIndex(sHeaders, ['points']);
+  const permIdx = findColumnIndex(sHeaders, ['permissions', 'perm']);
+  const stickIdx = findColumnIndex(sHeaders, ['stickers']);
+  const scriptIdx = findColumnIndex(sHeaders, ['script']);
+  
+  // Auxiliary Data
+  const saSheet = ss.getSheetByName('StudentAssignments');
+  const saData = saSheet ? saSheet.getDataRange().getValues() : [];
+  
+  const pSheet = ss.getSheetByName('Progress');
+  const pData = pSheet ? pSheet.getDataRange().getValues() : [];
+  
+  const cSheet = ss.getSheetByName('CustomStickers');
+  const cData = cSheet ? cSheet.getDataRange().getValues() : [];
+  
+  const students = [];
+  
+  for (let i = 1; i < sData.length; i++) {
+    const id = String(sData[i][idIdx]);
+    const name = String(sData[i][nameIdx]);
+    
+    // Filter assignments for this student
+    let completed = 0;
+    let inProgress = 0;
+    if (saData.length > 1) {
+        for(let j=1; j<saData.length; j++) {
+            if(String(saData[j][0]) === id) {
+                const status = String(saData[j][2]);
+                if(status === 'COMPLETED') completed++;
+                else if(status === 'IN_PROGRESS') inProgress++;
+            }
+        }
+    }
+    
+    // Filter progress/practice
+    let totalPracticed = 0;
+    let totalScore = 0;
+    if (pData.length > 1) {
+        for(let k=1; k<pData.length; k++) {
+            // Match by name because Progress stores name (legacy decision)
+            if(String(pData[k][1]).toLowerCase() === name.toLowerCase()) {
+                totalPracticed++;
+                totalScore += Number(pData[k][3] || 0);
+            }
+        }
+    }
+    const avg = totalPracticed > 0 ? Math.round(totalScore / totalPracticed) : 0;
+    
+    // Custom Stickers
+    const myCustomStickers = [];
+    if (cData.length > 1) {
+        for(let m=1; m<cData.length; m++) {
+            if(String(cData[m][1]) === id) {
+                myCustomStickers.push({
+                    id: String(cData[m][0]),
+                    studentId: String(cData[m][1]),
+                    dataUrl: String(cData[m][2]),
+                    prompt: String(cData[m][3])
+                });
+            }
+        }
+    }
+    
+    let stickers = [];
+    try { stickers = stickIdx > -1 && sData[i][stickIdx] ? JSON.parse(sData[i][stickIdx]) : []; } catch(e) {}
+
+    students.push({
+        id: id,
+        name: name,
+        points: ptsIdx > -1 ? Number(sData[i][ptsIdx]) : 0,
+        script: scriptIdx > -1 ? String(sData[i][scriptIdx]) : 'Simplified',
+        assignmentsCompleted: completed,
+        assignmentsInProgress: inProgress,
+        totalPracticed: totalPracticed,
+        averageScore: avg,
+        lastActive: lastIdx > -1 ? sData[i][lastIdx] : '',
+        canCreateStickers: permIdx > -1 ? (sData[i][permIdx] === true || sData[i][permIdx] === 'TRUE') : false,
+        stickers: stickers,
+        customStickers: myCustomStickers
+    });
+  }
+  
+  return response({ students: students });
 }
