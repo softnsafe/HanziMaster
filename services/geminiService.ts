@@ -309,16 +309,16 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
 export const getFlashcardData = async (character: string): Promise<Flashcard> => {
   try {
     const ai = getAI();
-    // Upgraded to Gemini 3 Pro for better definitions and pinyin accuracy
+    // Using gemini-3-flash-preview for faster response time on simple text tasks
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [{
           text: `Generate flashcard data for the Chinese character: "${character}".
           Return JSON with:
           - pinyin: Numbered pinyin (e.g. for 好 return 'hao3', for 妈妈 return 'ma1 ma'). Lowercase.
           - definition: Simple English meaning (1-3 words max).
-          - emoji: A single emoji that best represents the meaning (acts as a picture).
+          - emoji: A single emoji that best represents the meaning (acts as a visual picture for the card).
           `
         }]
       },
@@ -354,6 +354,58 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
       definition: '...',
       emoji: '❓'
     };
+  }
+};
+
+export const validatePinyinWithAI = async (character: string, userInput: string): Promise<{ isCorrect: boolean, feedback: string, standardPinyin: string }> => {
+  try {
+    const ai = getAI();
+    // Use gemini-3-flash-preview for low latency validation
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{
+          text: `Evaluate the pinyin input for the Chinese character(s): "${character}".
+          User Input: "${userInput}"
+          
+          Task:
+          Determine if the user's input is a correct pronunciation.
+          
+          Rules:
+          1. Accept tone numbers (e.g. "hao3") OR tone marks (e.g. "hǎo").
+          2. Case insensitive.
+          3. If the character is a polyphone (多音字), accept any common valid pronunciation.
+          4. Ignore spaces.
+          
+          Return JSON:
+          {
+            "isCorrect": boolean,
+            "feedback": "Brief explanation (e.g. 'Correct!', 'Wrong tone, should be 3rd tone', 'Wrong initial sound')",
+            "standardPinyin": "The correct standard numbered pinyin (e.g. 'hao3')"
+          }`
+        }]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isCorrect: { type: Type.BOOLEAN },
+            feedback: { type: Type.STRING },
+            standardPinyin: { type: Type.STRING }
+          },
+          required: ["isCorrect", "feedback", "standardPinyin"]
+        }
+      }
+    });
+
+    if (response.text) {
+        return JSON.parse(response.text);
+    }
+    throw new Error("No response from AI");
+  } catch (error) {
+    console.error("AI Pinyin validation error:", error);
+    throw error;
   }
 };
 
