@@ -1,6 +1,8 @@
 
 import { Sticker } from '../types';
 
+export const STICKER_CATEGORIES = ["Animals", "Food", "School", "Misc.", "Rewards"];
+
 // Helper to convert Google Drive sharing links to usable image sources
 export const convertDriveLink = (url: string): string => {
     if (!url) return '';
@@ -28,11 +30,40 @@ export const convertDriveLink = (url: string): string => {
     return url;
 };
 
+// New Helper for Audio Links - More Robust for v3.25.2
+export const convertAudioDriveLink = (url: string): string => {
+    if (!url) return '';
+    let trimmed = url.trim();
+    
+    // Check for standard Google Drive domains
+    if (trimmed.includes('drive.google.com') || trimmed.includes('docs.google.com')) {
+        let id = '';
+        
+        // Pattern A: .../d/FILE_ID/...
+        const pathMatch = trimmed.match(/\/d\/([-\w]{25,})/);
+        if (pathMatch && pathMatch[1]) {
+            id = pathMatch[1];
+        }
+        
+        // Pattern B: ...id=FILE_ID...
+        if (!id) {
+            const paramMatch = trimmed.match(/[?&]id=([-\w]{25,})/);
+            if (paramMatch && paramMatch[1]) {
+                id = paramMatch[1];
+            }
+        }
+
+        if (id) {
+            // Convert to direct download/stream link
+            // Added &confirm=t to bypass virus scan warning page which breaks audio
+            // Use docs.google.com/uc for better compatibility in some regions
+            return `https://docs.google.com/uc?export=download&id=${id}&confirm=t`;
+        }
+    }
+    return trimmed;
+};
+
 export const STICKER_CATALOG: Sticker[] = [
-  // These are now Legacy/Starter stickers. 
-  // The system primarily relies on the "Store" sheet now.
-  { id: 'panda', name: 'Panda', emoji: '🐼', cost: 50, category: 'ANIMAL', description: 'A cute giant panda' },
-  { id: 'tiger', name: 'Tiger', emoji: '🐯', cost: 50, category: 'ANIMAL', description: 'King of the beasts' },
-  { id: 'star', name: 'Star', emoji: '⭐', cost: 20, category: 'CELESTIAL', description: 'You are a star!' },
-  { id: 'medal', name: 'Medal', emoji: '🥇', cost: 150, category: 'OBJECT', description: 'Gold medal winner' },
+  // Hardcoded stickers removed to rely purely on the "Store" sheet in the backend.
+  // Add items via the Teacher Dashboard -> Rewards -> Manage Store.
 ];

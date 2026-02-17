@@ -1,6 +1,9 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
+import { sheetService } from './sheetService';
+import { convertAudioDriveLink } from '../utils/stickerData';
+import { convertCharacter } from '../utils/characterConverter';
 
 // Lazy initialization of AI instance
 let aiInstance: GoogleGenAI | null = null;
@@ -14,7 +17,7 @@ const getAI = (): GoogleGenAI => {
   return aiInstance;
 };
 
-// --- Audio Decoding Helpers ---
+// --- Audio Decoding Helpers (Kept for future use if Gemini TTS is re-enabled) ---
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -46,60 +49,79 @@ async function decodeAudioData(
 
 let audioContext: AudioContext | null = null;
 
-export const playPronunciation = async (text: string) => {
+// Helper to play audio and return promise that resolves on success/fail
+const playAudioUrl = (url: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+        const audio = new Audio(url);
+        audio.onended = () => resolve(true);
+        audio.onerror = () => resolve(false);
+        // Timeout if it hangs
+        setTimeout(() => resolve(false), 4000);
+        audio.play().catch(() => resolve(false));
+    });
+};
+
+export const playPronunciation = async (text: string, overrideUrl?: string, pinyin?: string) => {
+  // 1. Try Override URL if provided (from Assignment Metadata)
+  if (overrideUrl) {
+      const url = convertAudioDriveLink(overrideUrl);
+      const success = await playAudioUrl(url);
+      if (success) return;
+      console.warn("Override audio failed, trying dictionary...");
+  }
+
+  // 2. Try Global Dictionary from Sheet
   try {
-      if (!audioContext) {
-          audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-      }
+      const dict = await sheetService.getDictionary();
+      let dictUrl = dict[text];
       
-      if (audioContext.state === 'suspended') {
-          await audioContext.resume();
-      }
-
-      const ai = getAI();
-      const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-preview-tts",
-          contents: [{ parts: [{ text: text }] }],
-          config: {
-              responseModalities: [Modality.AUDIO], 
-              speechConfig: {
-                  voiceConfig: {
-                      prebuiltVoiceConfig: { voiceName: 'Kore' }
-                  }
-              }
+      // Fallback: If exact match not found, try Simplified version (Dictionary is often Simp)
+      if (!dictUrl) {
+          const simpText = convertCharacter(text, 'Simplified');
+          if (simpText !== text) {
+              dictUrl = dict[simpText];
           }
-      });
-      
-      const part = response.candidates?.[0]?.content?.parts?.[0];
-      
-      if (!part || !part.inlineData || !part.inlineData.data) {
-          // Check if we got text back instead (error description or refusal)
-          if (part && part.text) {
-             console.warn("Gemini TTS returned text:", part.text);
-          }
-          throw new Error("No audio data returned in response");
       }
-
-      const base64Audio = part.inlineData.data;
-
-      const audioBuffer = await decodeAudioData(
-          decode(base64Audio),
-          audioContext,
-          24000,
-          1
-      );
       
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.start();
+      if (dictUrl) {
+          const url = convertAudioDriveLink(dictUrl);
+          const success = await playAudioUrl(url);
+          if (success) return;
+          console.warn("Dictionary audio failed, trying local fallback...");
+      }
+  } catch (e) {
+      console.warn("Dictionary lookup failed", e);
+  }
 
-  } catch (error) {
-      console.error("Gemini TTS Error:", error);
-      // Fallback to browser TTS
+  // 3. Try Local File Fallback (e.g. /audio/hao3.mp3)
+  if (pinyin) {
+      // Clean pinyin (remove spaces, lowercase)
+      const cleanPinyin = pinyin.toLowerCase().replace(/\s+/g, '');
+      const localUrl = `/audio/${cleanPinyin}.mp3`;
+      const success = await playAudioUrl(localUrl);
+      if (success) return;
+      console.warn(`Local audio ${localUrl} not found, using TTS.`);
+  }
+
+  // 4. Fallback to Browser's built-in Speech Synthesis
+  try {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
+      utterance.lang = 'zh-CN'; // Set language to Chinese
+      utterance.rate = 0.8; // Slightly slower for clarity
+      
+      // Try to find a Chinese voice
+      const voices = window.speechSynthesis.getVoices();
+      const zhVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+      if (zhVoice) {
+          utterance.voice = zhVoice;
+      }
+
       window.speechSynthesis.speak(utterance);
+  } catch (error) {
+      console.error("Browser TTS failed:", error);
   }
 };
 // -----------------------------

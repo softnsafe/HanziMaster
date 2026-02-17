@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from './Button';
 import { Student, StoreItem } from '../types';
 import { STICKER_CATALOG, convertDriveLink } from '../utils/stickerData';
@@ -45,12 +45,18 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   const [errorMsg, setErrorMsg] = useState('');
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [loadingStore, setLoadingStore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const [selectedCategory, setSelectedCategory] = useState<string>('Misc.');
   
   // AI Lab State
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [aiCost] = useState(100);
+
+  // Preview State
+  const [previewItem, setPreviewItem] = useState<any | null>(null);
 
   useEffect(() => {
       if (activeTab === 'CATALOG') {
@@ -65,6 +71,45 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       setLoadingStore(false);
   };
 
+  // Derive categories dynamically from loaded items
+  const dynamicCategories = useMemo(() => {
+      if (storeItems.length === 0) return [];
+      const cats = new Set(storeItems.map(i => i.category || 'Misc.'));
+      return Array.from(cats).sort();
+  }, [storeItems]);
+
+  // Ensure selected category is valid when items load
+  useEffect(() => {
+      if (dynamicCategories.length > 0 && !dynamicCategories.includes(selectedCategory)) {
+          setSelectedCategory(dynamicCategories[0]);
+      }
+  }, [dynamicCategories, selectedCategory]);
+
+  const handleRefreshCollection = async () => {
+      setIsRefreshing(true);
+      setErrorMsg('');
+      try {
+          // Force refresh data from sheet (true = skip cache)
+          const allData = await sheetService.getAllStudentProgress(true);
+          const freshProfile = allData.find(s => s.id === student.id);
+          
+          if (freshProfile) {
+              onUpdateStudent({
+                  points: freshProfile.points,
+                  stickers: freshProfile.stickers,
+                  customStickers: freshProfile.customStickers
+              });
+          } else {
+              setErrorMsg("Could not sync profile.");
+          }
+      } catch (e) {
+          console.error("Refresh failed", e);
+          setErrorMsg("Sync failed. Check connection.");
+      } finally {
+          setIsRefreshing(false);
+      }
+  };
+
   const handlePurchase = async (stickerId: string, cost: number) => {
       if (student.points < cost) return;
       
@@ -77,7 +122,8 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       if (result.success && result.points !== undefined && result.stickers) {
           onUpdateStudent({ points: result.points, stickers: result.stickers });
       } else {
-          setErrorMsg("Purchase failed. Try again.");
+          // Display the backend error message if available, otherwise generic
+          setErrorMsg(result.message || "Purchase failed. Try again.");
       }
   };
 
@@ -204,42 +250,100 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                         <p className="text-slate-400 font-bold">The teacher hasn't added any stickers yet!</p>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        {storeItems.map(item => {
-                                            const isOwned = ownedIds.includes(item.id);
-                                            const canAfford = student.points >= item.cost;
-                                            // Apply conversion here to ensure image loads
-                                            const displayImage = convertDriveLink(item.imageUrl);
+                                    <>
+                                        {/* Dynamic Category Filter */}
+                                        <div className="flex gap-2 overflow-x-auto pb-4 mb-2 no-scrollbar">
+                                            {dynamicCategories.map(cat => (
+                                                 <button 
+                                                    key={cat}
+                                                    onClick={() => setSelectedCategory(cat)}
+                                                    className={`whitespace-nowrap px-4 py-2 rounded-full font-bold text-xs transition-all ${selectedCategory === cat ? 'bg-indigo-500 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                                >
+                                                    {cat}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {(() => {
+                                            const filteredItems = storeItems.filter(item => (item.category || 'Misc.') === selectedCategory);
+                                            
+                                            if (filteredItems.length === 0) {
+                                                return (
+                                                    <div className="py-12 text-center opacity-60">
+                                                        <div className="text-4xl mb-2 grayscale">📂</div>
+                                                        <p className="text-slate-400 font-bold text-sm">No stickers in "{selectedCategory}" yet.</p>
+                                                    </div>
+                                                );
+                                            }
 
                                             return (
-                                                <div key={item.id} className={`p-4 rounded-2xl border-2 flex flex-col items-center transition-all ${isOwned ? 'bg-emerald-50 border-emerald-200 opacity-80' : 'bg-white border-slate-100 shadow-sm'}`}>
-                                                    <div className="aspect-square w-full mb-3 rounded-xl overflow-hidden bg-slate-100 relative">
-                                                        <img src={displayImage} alt={item.name} className="w-full h-full object-cover" />
-                                                    </div>
-                                                    <div className="font-bold text-slate-700 text-sm truncate w-full text-center">{item.name}</div>
-                                                    {isOwned ? (
-                                                        <div className="mt-2 px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-xs font-bold uppercase">
-                                                            Owned
-                                                        </div>
-                                                    ) : (
-                                                        <button 
-                                                            onClick={() => handlePurchase(item.id, item.cost)}
-                                                            disabled={!canAfford || purchasingId === item.id}
-                                                            className={`mt-2 w-full py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-all ${canAfford ? 'bg-indigo-500 text-white hover:bg-indigo-600 shadow-[0_3px_0_#4338ca] active:shadow-none active:translate-y-1' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                                        >
-                                                            {purchasingId === item.id ? (
-                                                                <span className="animate-spin">⏳</span>
-                                                            ) : (
-                                                                <>
-                                                                    <span>⭐</span> {item.cost}
-                                                                </>
-                                                            )}
-                                                        </button>
-                                                    )}
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    {filteredItems.map(item => {
+                                                        const isOwned = ownedIds.includes(item.id);
+                                                        const canAfford = student.points >= item.cost;
+                                                        // Apply conversion here to ensure image loads
+                                                        const displayImage = convertDriveLink(item.imageUrl);
+
+                                                        return (
+                                                            <div key={item.id} className={`p-4 rounded-2xl border-2 flex flex-col items-center transition-all ${isOwned ? 'bg-emerald-50 border-emerald-200' : 'bg-[#fff5eb] border-orange-100 hover:border-orange-300 shadow-sm'}`}>
+                                                                <div 
+                                                                    className="aspect-square w-full mb-3 rounded-xl overflow-hidden bg-white relative cursor-zoom-in group"
+                                                                    onClick={() => setPreviewItem(item)}
+                                                                >
+                                                                    {/* 
+                                                                        VISUAL DISTINCTION: 
+                                                                        If not owned, apply grayscale and lower opacity to make it look "locked".
+                                                                        Use object-contain to prevent cropping of irregular shaped stickers.
+                                                                    */}
+                                                                    <img 
+                                                                        src={displayImage} 
+                                                                        alt={item.name} 
+                                                                        className={`w-full h-full object-contain transition-transform group-hover:scale-110 ${!isOwned ? 'grayscale opacity-60' : ''}`} 
+                                                                    />
+                                                                    
+                                                                    {!isOwned && (
+                                                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                                            <span className="text-4xl drop-shadow-md">🔒</span>
+                                                                        </div>
+                                                                    )}
+
+                                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                                        <span className="text-white opacity-0 group-hover:opacity-100 font-bold text-2xl drop-shadow-md">🔍</span>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {/* Updated Text Container: Allow wrapping and ensure centering */}
+                                                                <div className="font-bold text-slate-700 text-sm text-center leading-tight line-clamp-2 min-h-[2.5em] flex items-center justify-center w-full">
+                                                                    {item.name}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-400 font-bold mb-2">{item.category || 'Misc.'}</div>
+                                                                
+                                                                {isOwned ? (
+                                                                    <div className="mt-2 px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-xs font-bold uppercase flex items-center gap-1">
+                                                                        <span>✓</span> Owned
+                                                                    </div>
+                                                                ) : (
+                                                                    <button 
+                                                                        onClick={() => handlePurchase(item.id, item.cost)}
+                                                                        disabled={!canAfford || purchasingId === item.id}
+                                                                        className={`mt-2 w-full py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-all ${canAfford ? 'bg-indigo-500 text-white hover:bg-indigo-600 shadow-[0_3px_0_#4338ca] active:shadow-none active:translate-y-1' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                                                    >
+                                                                        {purchasingId === item.id ? (
+                                                                            <span className="animate-spin">⏳</span>
+                                                                        ) : (
+                                                                            <>
+                                                                                <span>⭐</span> {item.cost}
+                                                                            </>
+                                                                        )}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             );
-                                        })}
-                                    </div>
+                                        })()}
+                                    </>
                                 )}
                             </div>
                         )}
@@ -248,6 +352,17 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
 
                 {activeTab === 'COLLECTION' && (
                     <div className="space-y-8 animate-fade-in">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-slate-400 font-black uppercase text-xs tracking-wider">Your Stash</h3>
+                            <button 
+                                onClick={handleRefreshCollection}
+                                disabled={isRefreshing}
+                                className="text-xs font-bold text-indigo-500 hover:bg-indigo-50 px-3 py-1 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                            >
+                                {isRefreshing ? <span className="animate-spin">🔄</span> : '🔄'} Sync Collection
+                            </button>
+                        </div>
+
                         {uniqueOwnedStandard.length === 0 && myCustomStickers.length === 0 ? (
                             <div className="text-center py-20 opacity-50">
                                 <div className="text-6xl mb-4 grayscale">🛍️</div>
@@ -258,14 +373,20 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                             <>
                                 {uniqueOwnedStandard.length > 0 && (
                                     <div>
-                                        <h3 className="text-slate-400 font-black uppercase text-xs tracking-wider mb-3">Store Stickers</h3>
+                                        <h4 className="text-slate-400 font-bold text-[10px] uppercase mb-3">Store Stickers</h4>
                                         <div className="grid grid-cols-4 sm:grid-cols-6 gap-4">
                                             {uniqueOwnedStandard.map((s, idx) => {
                                                 if (!s) return null;
                                                 const displayImage = convertDriveLink(s.imageUrl || '');
                                                 return (
-                                                    <div key={`${s.id}-${idx}`} className="aspect-square bg-white rounded-2xl flex flex-col items-center justify-center border-2 border-slate-100 shadow-sm hover:scale-105 transition-transform overflow-hidden relative" title={s.name}>
-                                                        {s.imageUrl ? <img src={displayImage} className="w-full h-full object-cover" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{(s as any).emoji}</div>}
+                                                    <div 
+                                                        key={`${s.id}-${idx}`} 
+                                                        className="aspect-square bg-white rounded-2xl flex flex-col items-center justify-center border-2 border-slate-100 shadow-sm hover:scale-105 transition-transform overflow-hidden relative cursor-zoom-in group" 
+                                                        title={s.name}
+                                                        onClick={() => setPreviewItem(s)}
+                                                    >
+                                                        {/* Use object-contain to show full sticker in collection view, add padding for breathing room */}
+                                                        {s.imageUrl ? <img src={displayImage} className="w-full h-full object-contain p-2" alt={s.name} /> : <div className="text-5xl drop-shadow-sm">{(s as any).emoji}</div>}
                                                     </div>
                                                 );
                                             })}
@@ -275,11 +396,16 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
 
                                 {myCustomStickers.length > 0 && (
                                     <div>
-                                        <h3 className="text-purple-400 font-black uppercase text-xs tracking-wider mb-3">My AI Creations</h3>
+                                        <h4 className="text-purple-400 font-bold text-[10px] uppercase mb-3">My AI Creations / Gifts</h4>
                                         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                                             {myCustomStickers.map(s => (
-                                                <div key={s.id} className="aspect-square bg-purple-50 rounded-2xl border-2 border-purple-100 overflow-hidden relative group hover:scale-105 transition-transform shadow-sm">
-                                                    <img src={s.dataUrl} alt={s.prompt} className="w-full h-full object-cover" />
+                                                <div 
+                                                    key={s.id} 
+                                                    className="aspect-square bg-purple-50 rounded-2xl border-2 border-purple-100 overflow-hidden relative group hover:scale-105 transition-transform shadow-sm cursor-zoom-in"
+                                                    onClick={() => setPreviewItem(s)}
+                                                >
+                                                    {/* Use object-contain here to fix visibility issue for gifted stickers that end up here */}
+                                                    <img src={s.dataUrl} alt={s.prompt} className="w-full h-full object-contain p-2" />
                                                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2 text-center">
                                                         <span className="text-[10px] text-white font-bold leading-tight line-clamp-3">{s.prompt}</span>
                                                     </div>
@@ -362,6 +488,46 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                 )}
             </div>
         </div>
+
+        {/* PREVIEW MODAL */}
+        {previewItem && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setPreviewItem(null)}>
+                <div className="bg-white rounded-3xl p-6 max-w-sm w-full relative shadow-2xl flex flex-col items-center text-center animate-bounce-in" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setPreviewItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200">✕</button>
+                    
+                    <h3 className="text-xl font-extrabold text-slate-800 mb-4">{previewItem.name || previewItem.prompt || 'Sticker Preview'}</h3>
+                    
+                    {(() => {
+                        const isOwned = ownedIds.includes(previewItem.id) || !!previewItem.studentId; // Custom stickers are always owned by definition here
+                        return (
+                            <div className="w-64 h-64 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 overflow-hidden border-2 border-slate-100 p-2 relative">
+                                {previewItem.imageUrl || previewItem.dataUrl ? (
+                                    <img 
+                                        src={convertDriveLink(previewItem.imageUrl || previewItem.dataUrl)} 
+                                        alt="Preview" 
+                                        className={`w-full h-full object-contain ${!isOwned ? 'grayscale opacity-60' : ''}`} 
+                                    />
+                                ) : (
+                                    <div className="text-9xl drop-shadow-md">{(previewItem as any).emoji}</div>
+                                )}
+                                
+                                {!isOwned && (
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <span className="text-6xl drop-shadow-md">🔒</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {previewItem.category && (
+                        <span className="px-3 py-1 bg-slate-100 rounded-full text-xs font-bold text-slate-500 uppercase tracking-wide">
+                            {previewItem.category}
+                        </span>
+                    )}
+                </div>
+            </div>
+        )}
     </div>
   );
 };

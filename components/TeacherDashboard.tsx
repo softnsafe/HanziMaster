@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
-import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog } from '../types';
+import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, ContributionLog, RewardRule, Sticker } from '../types';
 import { CalendarView } from './CalendarView';
 import { generateSticker } from '../services/geminiService';
-import { STICKER_CATALOG, convertDriveLink } from '../utils/stickerData';
+import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
+import { parseLocalDate } from '../utils/dateUtils';
 
 interface TeacherDashboardProps {
   onLogout: () => void;
@@ -14,10 +15,9 @@ interface TeacherDashboardProps {
   onResetTheme: () => void;
 }
 
-// Removed 'logs' from types
-type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs';
+type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary';
 
-// Client-side resizing for stickers 
+// Client-side resizing optimized for uploads
 const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -31,7 +31,6 @@ const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => {
       const ctx = canvas.getContext('2d');
       if (ctx) {
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // Medium compression PNG
           resolve(canvas.toDataURL('image/png', 0.8));
       } else {
           resolve(base64Str);
@@ -41,11 +40,73 @@ const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => {
   });
 };
 
-const STICKER_KEYWORDS = {
-  'Characters': ['Panda', 'Tiger', 'Cat', 'Dog', 'Rabbit', 'Dragon', 'Robot', 'Unicorn', 'Monkey', 'Owl'],
-  'Items': ['Star', 'Trophy', 'Medal', 'Book', 'Pencil', 'Rocket', 'Sun', 'Moon', 'Flower', 'Gem'],
-  'Styles': ['3D Cartoon', 'Watercolor', 'Pixel Art', 'Doodle', 'Vector', 'Pop Art', 'Origami', 'Clay'],
-  'Mood': ['Happy', 'Cool', 'Sleepy', 'Excited', 'Studious', 'Funny', 'Proud', 'Silly']
+const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClose: () => void }) => {
+  const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
+  
+  useEffect(() => {
+    sheetService.getStoreItems().then(setStoreItems);
+  }, []);
+
+  const ownedStandard = [...storeItems, ...STICKER_CATALOG].filter(s => (student.stickers || []).includes(s.id));
+  const uniqueStandard = Array.from(new Set(ownedStandard.map(s => s.id))).map(id => ownedStandard.find(s => s.id === id)).filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={onClose}>
+        <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+                <div>
+                    <h3 className="text-2xl font-extrabold text-slate-800">{student.name}'s Collection</h3>
+                    <p className="text-slate-400 font-bold text-sm">Stickers & Creations</p>
+                </div>
+                <button onClick={onClose} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-2">
+                <div className="space-y-8">
+                    {uniqueStandard.length > 0 && (
+                        <div>
+                            <h4 className="text-slate-400 font-bold text-xs uppercase mb-3">Store Stickers</h4>
+                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-4">
+                                {uniqueStandard.map((s, idx) => (
+                                    <div key={`${s!.id}-${idx}`} className="aspect-square bg-white rounded-2xl flex items-center justify-center border-2 border-slate-100 p-2 relative">
+                                        {s!.imageUrl ? (
+                                            <img src={convertDriveLink(s!.imageUrl || '')} className="w-full h-full object-contain" alt={s!.name} />
+                                        ) : (
+                                            <div className="text-4xl select-none">{(s as any).emoji}</div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {student.customStickers && student.customStickers.length > 0 && (
+                        <div>
+                            <h4 className="text-purple-400 font-bold text-xs uppercase mb-3">AI Creations / Gifts</h4>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                                {student.customStickers.map((s, idx) => (
+                                    <div key={idx} className="aspect-square bg-purple-50 rounded-2xl border-2 border-purple-100 overflow-hidden relative group">
+                                        {/* Use object-contain and padding to ensure full visibility without clicking */}
+                                        <img src={s.dataUrl} alt={s.prompt} className="w-full h-full object-contain p-2" />
+                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2 text-center">
+                                            <span className="text-[10px] text-white font-bold leading-tight">{s.prompt}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {uniqueStandard.length === 0 && (!student.customStickers || student.customStickers.length === 0) && (
+                        <div className="text-center py-20 text-slate-400 font-bold">
+                            No stickers yet.
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
+  );
 };
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup, onUpdateTheme, onResetTheme }) => {
@@ -63,37 +124,44 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [endDate, setEndDate] = useState(() => {
      const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0];
   });
-  const [assignedTo, setAssignedTo] = useState<string[]>([]); // Empty = All students
+  const [customAudioMap, setCustomAudioMap] = useState<Record<string, string>>({});
+  const [currentAssignedTo, setCurrentAssignedTo] = useState<string[]>([]); // Preserve assignments when editing
 
-  // Calendar Event State
-  const [calEditingId, setCalEditingId] = useState<string | null>(null);
+  // Dictionary State
+  const [dictionary, setDictionary] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
+  const [dictChar, setDictChar] = useState('');
+  const [dictPinyin, setDictPinyin] = useState('');
+  const [dictDef, setDictDef] = useState('');
+  const [dictAudio, setDictAudio] = useState('');
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Rewards Tab State
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [rewardMode, setRewardMode] = useState<'POINTS' | 'STICKER' | 'STORE' | 'RULES'>('POINTS');
+  const [rewardPoints, setRewardPoints] = useState(5);
+  const [rewardReason, setRewardReason] = useState("Good Job!");
+  const [selectedSticker, setSelectedSticker] = useState<StoreItem | Sticker | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<StudentSummary | null>(null);
+  const [activeGoals, setActiveGoals] = useState<ClassGoal[]>([]);
+  const [recentContributions, setRecentContributions] = useState<ContributionLog[]>([]);
+  const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
+
+  // Calendar State
+  const [calEventId, setCalEventId] = useState<string | null>(null);
   const [calDate, setCalDate] = useState(new Date().toISOString().split('T')[0]);
   const [calTitle, setCalTitle] = useState('');
   const [calType, setCalType] = useState<CalendarEventType>('SCHOOL_DAY');
   const [calDesc, setCalDesc] = useState('');
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0);
 
-  // Rewards Tab State
-  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
-  const [rewardMode, setRewardMode] = useState<'POINTS' | 'STICKER' | 'STORE'>('POINTS');
-  const [rewardPoints, setRewardPoints] = useState(5);
-  const [rewardReason, setRewardReason] = useState("Good Job!");
-  const [stickerPrompt, setStickerPrompt] = useState("");
-  const [stickerModel, setStickerModel] = useState<'FAST' | 'QUALITY' | 'OFFLINE'>('FAST');
-  const [generatedSticker, setGeneratedSticker] = useState<string | null>(null);
-  const [viewingStudent, setViewingStudent] = useState<StudentSummary | null>(null);
-  const [selectedStoreItem, setSelectedStoreItem] = useState<StoreItem | null>(null);
-
   // Store Management State
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreUrl, setNewStoreUrl] = useState('');
   const [newStoreCost, setNewStoreCost] = useState(100);
+  const [newStoreCategory, setNewStoreCategory] = useState('');
 
-  // Progress Filter State
-  const [progressStartDate, setProgressStartDate] = useState('');
-  const [progressEndDate, setProgressEndDate] = useState('');
-  
   // Logs State
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
 
@@ -105,7 +173,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [studentData, setStudentData] = useState<StudentSummary[]>([]);
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   
-  // On mount, fetch students so we can populate the dropdown even on 'create' tab
+  // On mount
   useEffect(() => {
     const fetchStudents = async () => {
         const data = await sheetService.getAllStudentProgress(false);
@@ -125,7 +193,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       loadTabData();
   }, [activeTab]);
 
-  // Sync viewingStudent if data updates (e.g. after gifting)
   useEffect(() => {
       if (viewingStudent) {
           const fresh = studentData.find(s => s.id === viewingStudent.id);
@@ -136,242 +203,340 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const loadTabData = async () => {
       setIsLoadingData(true);
       if (activeTab === 'progress' || activeTab === 'rewards') {
-          // Force refresh to get latest stickers
-          const forceRefresh = true; 
-          setStudentData(await sheetService.getAllStudentProgress(forceRefresh, progressStartDate, progressEndDate));
-          // Load store items for rewards page
+          // Force refresh student data when in these tabs to show latest list
+          const students = await sheetService.getAllStudentProgress(true);
+          setStudentData(students);
+          
           if (activeTab === 'rewards') {
-              const items = await sheetService.getStoreItems(true);
+              const [items, goals, contributions, rules] = await Promise.all([
+                  sheetService.getStoreItems(true),
+                  sheetService.getClassGoals(true),
+                  sheetService.getRecentGoalContributions(true),
+                  sheetService.getRewardRules(true)
+              ]);
               setStoreItems(items);
+              setActiveGoals(goals);
+              setRecentContributions(contributions);
+              setRewardRules(rules);
           }
       }
       else if (activeTab === 'assignments') {
           setAssignments(await sheetService.getAssignments(true));
       }
       else if (activeTab === 'logs') {
-          const logs = await sheetService.getLoginLogs(true);
-          setLoginLogs(logs);
+          setLoginLogs(await sheetService.getLoginLogs(true));
       }
-      
+      else if (activeTab === 'dictionary') {
+          const dict = await sheetService.getFullDictionary(true);
+          setDictionary(dict);
+      }
       setIsLoadingData(false);
   };
 
-  // --- Handlers ---
-
   const handleToggleClassStatus = async () => {
       const newState = !isClassOpen;
-      setIsClassOpen(newState); // Optimistic UI
+      setIsClassOpen(newState);
       const result = await sheetService.setClassStatus(newState);
       if (!result.success) {
-          setIsClassOpen(!newState); // Revert on fail
+          setIsClassOpen(!newState);
           alert("Failed to update status");
       }
   };
 
+  const handleResetForm = () => {
+      setEditingId(null);
+      setTitle('');
+      setDesc('');
+      setChars('');
+      setType('WRITING');
+      setStartDate(new Date().toISOString().split('T')[0]);
+      const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
+      setEndDate(nextWeek.toISOString().split('T')[0]);
+      setCustomAudioMap({});
+      setCurrentAssignedTo([]);
+  };
+
   const handleCreateOrUpdateHomework = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const payload: Lesson = {
-        id: editingId || `w-${Date.now()}`,
-        title, description: desc,
-        characters: chars.split(/[,，\s\n]+/).map(c => c.trim()).filter(c => c),
-        startDate, endDate, type,
-        assignedTo
-    };
-    const result = editingId ? await sheetService.editAssignment(payload) : await sheetService.createAssignment(payload);
-    setIsSubmitting(false);
-    if (result.success) {
-        setLastSuccess("Assignment Published Successfully!");
-        setEditingId(null); setTitle(''); setDesc(''); setChars(''); setAssignedTo([]);
-        setTimeout(() => setLastSuccess(''), 3000);
-    } else { setLastError(result.message || "Error"); }
+      e.preventDefault();
+      setIsSubmitting(true);
+      
+      let charList: string[] = [];
+      if (type === 'FILL_IN_BLANKS') {
+          charList = chars.split('\n').map(s => s.trim()).filter(Boolean);
+      } else {
+          charList = chars.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      }
+
+      const lesson: Lesson = {
+          id: editingId || `lesson-${Date.now()}`,
+          title,
+          description: desc,
+          characters: charList,
+          type,
+          startDate,
+          endDate,
+          assignedTo: editingId ? currentAssignedTo : [], // Preserve assignedTo if editing
+          metadata: { customAudio: customAudioMap }
+      };
+
+      let res;
+      if (editingId) {
+          res = await sheetService.editAssignment(lesson);
+      } else {
+          res = await sheetService.createAssignment(lesson);
+      }
+
+      if (res.success) {
+          setLastSuccess("Assignment Saved!");
+          if (!editingId) {
+             handleResetForm();
+          }
+          await loadTabData();
+          setTimeout(() => setLastSuccess(''), 3000);
+      } else {
+          setLastError("Failed to save assignment.");
+      }
+      setIsSubmitting(false);
+  };
+
+  const handleDeleteAssignment = async (id: string) => {
+      if(!confirm("Are you sure?")) return;
+      await sheetService.deleteAssignment(id);
+      await loadTabData();
+  };
+
+  const handleEditAssignment = (lesson: Lesson) => {
+      // 1. Set State immediately
+      setEditingId(lesson.id);
+      setTitle(lesson.title);
+      setDesc(lesson.description);
+      // Ensure safe join
+      const joinedChars = (lesson.characters || []).join('\n');
+      setChars(joinedChars);
+      
+      setType(lesson.type);
+      setStartDate(lesson.startDate ? lesson.startDate.split('T')[0] : '');
+      setEndDate(lesson.endDate ? lesson.endDate.split('T')[0] : '');
+      setCustomAudioMap(lesson.metadata?.customAudio || {});
+      setCurrentAssignedTo(lesson.assignedTo || []);
+      
+      // 2. Switch Tab
+      setActiveTab('create');
+      
+      // 3. Scroll to top
+      setTimeout(() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 100);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!e.target.files || e.target.files.length === 0) return;
+      const file = e.target.files[0];
+      if (file.size > 2000000) { alert("File too large. < 2MB only."); return; }
+      setIsUploadingAudio(true);
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+          const base64 = event.target?.result as string;
+          if (base64) {
+              const result = await sheetService.uploadMedia(base64);
+              if (result.success && result.url) {
+                  setDictAudio(result.url);
+                  setLastSuccess("Audio Uploaded!");
+              } else {
+                  setLastError("Upload failed: " + result.message);
+              }
+          }
+          setIsUploadingAudio(false);
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleAddToDictionary = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!dictChar) return;
+      setIsSubmitting(true);
+      const result = await sheetService.addToDictionary({
+          character: dictChar,
+          pinyin: dictPinyin,
+          definition: dictDef,
+          audioUrl: dictAudio
+      });
+      if (result.success) {
+          setLastSuccess("Added to Dictionary!");
+          setDictChar(''); setDictPinyin(''); setDictDef(''); setDictAudio('');
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          await loadTabData();
+      } else {
+          setLastError("Failed to save.");
+      }
+      setIsSubmitting(false);
+  };
+
+  const handleDeleteFromDictionary = async (char: string) => {
+      if (!confirm(`Delete "${char}"?`)) return;
+      await sheetService.deleteFromDictionary(char);
+      await loadTabData();
+  };
+
+  const handleTestAudio = () => {
+      if (!dictAudio) return;
+      try {
+          const url = dictAudio.startsWith('/') ? dictAudio : convertAudioDriveLink(dictAudio);
+          const audio = new Audio(url);
+          audio.play().catch(e => alert("Audio Play Error: " + e.message));
+      } catch (e: any) {
+          alert("Invalid URL: " + e.message);
+      }
+  };
+
+  const setLocalAudio = () => {
+      if (!dictPinyin) {
+          alert("Please enter pinyin first.");
+          return;
+      }
+      const clean = dictPinyin.trim().toLowerCase().replace(/\s+/g, '');
+      setDictAudio(`/audio/${clean}.mp3`);
   };
 
   const toggleStudent = (id: string) => {
-      if (assignedTo.includes(id)) {
-          setAssignedTo(prev => prev.filter(s => s !== id));
-      } else {
-          setAssignedTo(prev => [...prev, id]);
-      }
-  };
-
-  const handleSaveCalendarEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const event: CalendarEvent = {
-        id: calEditingId || `cal-${Date.now()}`,
-        date: calDate, title: calTitle, type: calType, description: calDesc
-    };
-    const result = await sheetService.saveCalendarEvent(event);
-    setIsSubmitting(false);
-    if (result.success) {
-        setLastSuccess("Calendar event saved!");
-        setCalEditingId(null); setCalTitle(''); setCalDesc('');
-        setCalendarRefreshTrigger(prev => prev + 1); // Trigger calendar refresh
-        setTimeout(() => setLastSuccess(''), 3000);
-    } else { setLastError("Error saving calendar event"); }
-  };
-
-  const handleDeleteCalendarEvent = async (id: string) => {
-      if (!confirm("Delete this event?")) return;
-      await sheetService.deleteCalendarEvent(id);
-      setLastSuccess("Event deleted");
-      setCalendarRefreshTrigger(prev => prev + 1); // Trigger calendar refresh
-      setTimeout(() => setLastSuccess(''), 3000);
-  };
-
-  // Reward Handlers
-  const toggleRewardSelection = (id: string) => {
       const newSet = new Set(selectedStudentIds);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
+      if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
       setSelectedStudentIds(newSet);
   };
 
-  const toggleSelectAllRewards = () => {
-      if (selectedStudentIds.size === studentData.length) {
-          setSelectedStudentIds(new Set());
-      } else {
-          setSelectedStudentIds(new Set(studentData.map(s => s.id)));
-      }
+  const toggleSelectAll = () => {
+      if (selectedStudentIds.size === studentData.length) setSelectedStudentIds(new Set());
+      else setSelectedStudentIds(new Set(studentData.map(s => s.id)));
   };
 
   const handleGivePoints = async () => {
-      if (selectedStudentIds.size === 0) {
-          setLastError("Select at least one student."); return;
-      }
+      if (selectedStudentIds.size === 0) return;
       setIsSubmitting(true);
-      const result = await sheetService.adminGivePoints(Array.from(selectedStudentIds), rewardPoints, rewardReason);
-      if (result.success) {
-          setLastSuccess(`Awarded ${rewardPoints} points to ${selectedStudentIds.size} student(s)!`);
-          loadTabData(); // Refresh points display
-          setTimeout(() => setLastSuccess(''), 3000);
-      } else {
-          setLastError("Failed to update points.");
-      }
+      await sheetService.adminGivePoints(Array.from(selectedStudentIds), rewardPoints, rewardReason);
+      setLastSuccess(`Awarded ${rewardPoints} points!`);
+      await loadTabData();
       setIsSubmitting(false);
+      setTimeout(() => setLastSuccess(''), 3000);
   };
 
-  const handleGenerateSticker = async () => {
-      if (!stickerPrompt) return;
-      setIsSubmitting(true);
-      setGeneratedSticker(null);
-      // Pass the selected model (FAST, QUALITY, or OFFLINE) to the service
-      const img = await generateSticker(stickerPrompt, stickerModel);
-      if (img) setGeneratedSticker(img);
-      else setLastError("Failed to generate sticker. Try again.");
-      setIsSubmitting(false);
-  };
-
-  const handleGiftSticker = async () => {
-      if (selectedStudentIds.size === 0) { setLastError("Select students first."); return; }
-      if (!generatedSticker) { setLastError("Generate a sticker first."); return; }
-      
+  const handleGiveSticker = async () => {
+      if (selectedStudentIds.size === 0 || !selectedSticker) return;
       setIsSubmitting(true);
       
-      // Resize to 200px (Balance between quality and upload speed)
-      const resized = await resizeImage(generatedSticker, 200);
+      const stickerPayload = {
+          id: selectedSticker.id, // IMPORTANT: Sending ID tells backend this is a standard sticker, not a new custom creation
+          dataUrl: selectedSticker.imageUrl || (selectedSticker as any).emoji || '',
+          prompt: selectedSticker.name
+      };
       
-      const result = await sheetService.adminGiveSticker(Array.from(selectedStudentIds), { dataUrl: resized, prompt: stickerPrompt });
-      if (result.success) {
-          setLastSuccess(`Gifted sticker to ${selectedStudentIds.size} student(s)!`);
-          setGeneratedSticker(null);
-          setStickerPrompt("");
-          // CRITICAL: Reload data so it shows up in the "View Collection" modal immediately
-          await loadTabData();
-          
-          setTimeout(() => setLastSuccess(''), 3000);
-      } else {
-          // Show detailed error if available
-          setLastError(result.message || "Failed to save sticker. Check network.");
-          if (result.message?.includes('Invalid action')) {
-              alert("⚠️ Backend outdated. Please go to Settings -> Google Apps Script and update your deployment code.");
-          }
-      }
+      await sheetService.adminGiveSticker(Array.from(selectedStudentIds), stickerPayload);
+      setLastSuccess(`Sent ${selectedSticker.name} sticker!`);
+      await loadTabData();
       setIsSubmitting(false);
+      setTimeout(() => setLastSuccess(''), 3000);
   };
 
-  // STORE MANAGEMENT HANDLERS
   const handleAddStoreItem = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newStoreName || !newStoreUrl) return;
-      
       setIsSubmitting(true);
-      const convertedUrl = convertDriveLink(newStoreUrl);
-      const result = await sheetService.addStoreItem({
-          name: newStoreName,
-          imageUrl: convertedUrl,
-          cost: newStoreCost
-      });
-      
-      if (result.success) {
-          setLastSuccess("Sticker added to store!");
-          setNewStoreName(''); setNewStoreUrl('');
-          const items = await sheetService.getStoreItems(true);
-          setStoreItems(items);
-      } else {
-          setLastError("Failed to add item.");
-      }
+      await sheetService.addStoreItem({ name: newStoreName, imageUrl: newStoreUrl, cost: newStoreCost, category: newStoreCategory || 'Misc.' });
+      setLastSuccess("Item Added!");
+      setNewStoreName(''); setNewStoreUrl(''); setNewStoreCost(100);
+      await loadTabData();
       setIsSubmitting(false);
   };
 
   const handleDeleteStoreItem = async (id: string) => {
-      if (!confirm("Remove this sticker from the store?")) return;
+      if(!confirm("Delete this item?")) return;
       await sheetService.deleteStoreItem(id);
-      const items = await sheetService.getStoreItems(true);
-      setStoreItems(items);
+      await loadTabData();
   };
 
-  const handleGiftStoreItem = async () => {
-      if (!selectedStoreItem) return;
-      if (selectedStudentIds.size === 0) { setLastError("Select students first."); return; }
+  const handleTogglePermission = async (studentId: string, canCreate: boolean) => {
+      await sheetService.updateStudentPermission(studentId, canCreate);
+      await loadTabData();
+  };
+
+  const handleCreatePizzaParty = async () => {
+      if(!confirm("Start a new Pizza Party goal?")) return;
+      await sheetService.createClassGoal("Pizza Party", 500);
+      await loadTabData();
+  };
+
+  const handleDeleteGoal = async (id: string) => {
+      await sheetService.deleteClassGoal(id);
+      await loadTabData();
+  };
+
+  const handleToggleGoal = async (id: string, currentStatus: string) => {
+      const newStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+      await sheetService.toggleClassGoalStatus(id, newStatus);
+      await loadTabData();
+  };
+
+  // --- Calendar Handlers ---
+  const handleDateSelect = (date: Date) => {
+      // Adjust for timezone offset to prevent date shifting
+      const offset = date.getTimezoneOffset();
+      const localDate = new Date(date.getTime() - (offset*60*1000));
+      setCalDate(localDate.toISOString().split('T')[0]);
+      
+      setCalEventId(null);
+      setCalTitle('');
+      setCalType('SCHOOL_DAY');
+      setCalDesc('');
+  };
+
+  const handleEventClick = (event: CalendarEvent) => {
+      setCalEventId(event.id);
+      setCalDate(event.date); // already YYYY-MM-DD string
+      setCalTitle(event.title);
+      setCalType(event.type);
+      setCalDesc(event.description || '');
+  };
+
+  const handleSaveEvent = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!calTitle || !calDate) return;
       
       setIsSubmitting(true);
-      // We pass the Store Item data as if it were a generated sticker, but using its existing ID
-      const result = await sheetService.adminGiveSticker(Array.from(selectedStudentIds), { 
-          id: selectedStoreItem.id, // Important: Reuse ID so it stacks properly
-          dataUrl: selectedStoreItem.imageUrl, 
-          prompt: selectedStoreItem.name 
-      });
+      const payload = {
+          id: calEventId || `evt-${Date.now()}`,
+          date: calDate,
+          title: calTitle,
+          type: calType,
+          description: calDesc
+      };
+      await sheetService.saveCalendarEvent(payload);
+      setLastSuccess(calEventId ? "Event Updated" : "Event Created");
+      setCalendarRefreshTrigger(prev => prev + 1);
       
-      if (result.success) {
-          setLastSuccess(`Gifted ${selectedStoreItem.name} to ${selectedStudentIds.size} students!`);
-          await loadTabData();
-          setSelectedStoreItem(null);
-          setTimeout(() => setLastSuccess(''), 3000);
-      } else {
-          setLastError("Failed to send gift.");
-      }
+      // Reset form
+      setCalEventId(null); setCalTitle(''); setCalDesc('');
       setIsSubmitting(false);
+      setTimeout(() => setLastSuccess(''), 3000);
   };
 
-  const handleTogglePermission = async (studentId: string, currentStatus: boolean) => {
-      // Toggle logic
-      const newStatus = !currentStatus;
-      // Optimistic Update
-      setStudentData(prev => prev.map(s => s.id === studentId ? { ...s, canCreateStickers: newStatus } : s));
+  const handleDeleteEvent = async () => {
+      if (!calEventId || !confirm("Delete this event?")) return;
+      setIsSubmitting(true);
+      await sheetService.deleteCalendarEvent(calEventId);
+      setLastSuccess("Event Deleted");
+      setCalendarRefreshTrigger(prev => prev + 1);
       
-      const result = await sheetService.updateStudentPermission(studentId, newStatus);
-      if (!result.success) {
-          // Revert if failed
-          setStudentData(prev => prev.map(s => s.id === studentId ? { ...s, canCreateStickers: currentStatus } : s));
-          setLastError("Failed to update permission");
-      }
-  };
-
-  const addToPrompt = (word: string) => {
-      setStickerPrompt(prev => {
-          const trimmed = prev.trim();
-          return trimmed ? `${trimmed} ${word}` : word;
-      });
+      setCalEventId(null); setCalTitle(''); setCalDesc('');
+      setIsSubmitting(false);
+      setTimeout(() => setLastSuccess(''), 3000);
   };
 
   // --- UI Components ---
-
-  const SectionHeader = ({ title, subtitle }: { title: string, subtitle?: string }) => (
-      <div className="mb-8 border-b-2 border-slate-100 pb-4">
-          <h2 className="text-3xl font-extrabold text-slate-700 tracking-tight">{title}</h2>
-          {subtitle && <p className="text-slate-500 font-medium text-lg mt-2">{subtitle}</p>}
+  const SectionHeader = ({ title, subtitle, rightElement }: { title: string, subtitle?: string, rightElement?: React.ReactNode }) => (
+      <div className="mb-8 border-b-2 border-slate-100 pb-4 flex justify-between items-start">
+          <div>
+              <h2 className="text-3xl font-extrabold text-slate-700 tracking-tight">{title}</h2>
+              {subtitle && <p className="text-slate-500 font-medium text-lg mt-2">{subtitle}</p>}
+          </div>
+          {rightElement}
       </div>
   );
 
@@ -379,89 +544,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       <label className="block text-sm font-bold text-slate-500 uppercase tracking-wide mb-2 ml-1">{label}</label>
   );
 
-  const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClose: () => void }) => {
-      const ownedIds = student.stickers || [];
-      // Combine Store Items and Catalog for "Standard" display
-      const allStandardItems = [...storeItems, ...STICKER_CATALOG];
-      
-      // Filter distinct stickers owned by student
-      const ownedStandardStickers = allStandardItems.filter(s => ownedIds.includes(s.id));
-      // De-duplicate in case of overlap between store/catalog
-      const uniqueOwned = Array.from(new Set(ownedStandardStickers.map(s => s.id)))
-          .map(id => ownedStandardStickers.find(s => s.id === id));
-
-      const customStickers = student.customStickers || [];
-
-      return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={onClose}>
-              <div className="bg-white rounded-[2.5rem] p-8 max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in" onClick={e => e.stopPropagation()}>
-                  <div className="flex justify-between items-center mb-6">
-                      <div className="flex items-center gap-4">
-                          <h3 className="text-2xl font-extrabold text-slate-800">{student.name}'s Collection</h3>
-                          {/* Manual Refresh Button inside Modal */}
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); loadTabData(); }}
-                            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-indigo-100 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition-colors"
-                            title="Refresh Data"
-                          >
-                            🔄
-                          </button>
-                      </div>
-                      <button onClick={onClose} className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition-colors">✕</button>
-                  </div>
-                  
-                  <div className="flex-1 overflow-y-auto pr-2">
-                      {uniqueOwned.length === 0 && customStickers.length === 0 ? (
-                          <div className="text-center py-16 text-slate-400">
-                              <div className="text-6xl mb-2 grayscale opacity-50">🛍️</div>
-                              <p className="font-bold">No stickers yet.</p>
-                          </div>
-                      ) : (
-                          <div className="space-y-8">
-                              {/* Standard Stickers */}
-                              {uniqueOwned.length > 0 && (
-                                  <div>
-                                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Store Stickers ({uniqueOwned.length})</h4>
-                                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-4">
-                                          {uniqueOwned.map((s, idx) => {
-                                              if (!s) return null;
-                                              return (
-                                                <div key={`${s.id}-${idx}`} className="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-4xl border-2 border-slate-100 overflow-hidden relative" title={s.name}>
-                                                    {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover" alt={s.name} /> : (s as any).emoji}
-                                                </div>
-                                              );
-                                          })}
-                                      </div>
-                                  </div>
-                              )}
-
-                              {/* Custom Stickers */}
-                              {customStickers.length > 0 && (
-                                  <div>
-                                      <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest mb-3">AI Creations ({customStickers.length})</h4>
-                                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                                          {customStickers.map(s => (
-                                              <div key={s.id} className="aspect-square bg-purple-50 rounded-2xl border-2 border-purple-100 overflow-hidden relative group">
-                                                  <img src={s.dataUrl} alt={s.prompt} className="w-full h-full object-cover" />
-                                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2 text-center">
-                                                      <span className="text-[10px] text-white font-bold leading-tight line-clamp-3">{s.prompt}</span>
-                                                  </div>
-                                              </div>
-                                          ))}
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-                      )}
-                  </div>
-              </div>
-          </div>
-      );
-  };
+  // Derived categories for the datalist (always dynamically updated)
+  const existingCategories = Array.from(new Set(storeItems.map(i => i.category || 'Misc.'))).sort();
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-in space-y-8 pb-20 font-nunito bg-[#f8fafc] min-h-screen p-6">
-      {/* Top Navigation Bar */}
+      {/* Top Nav */}
       <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6 sticky top-4 z-40">
         <div className="flex items-center gap-5">
             <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-4xl border border-indigo-100 text-indigo-500">🍎</div>
@@ -470,14 +558,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                 <p className="text-slate-400 font-bold">Class Management</p>
             </div>
         </div>
-        
-        {/* RIGHT SIDE CONTROLS */}
         <div className="flex flex-wrap items-center gap-4">
-            {/* CLASS TOGGLE SWITCH */}
-            <div className={`
-                flex items-center gap-2 px-4 py-2 rounded-full border-2 transition-all cursor-pointer select-none
-                ${isClassOpen ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}
-            `} onClick={handleToggleClassStatus}>
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 transition-all cursor-pointer select-none ${isClassOpen ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`} onClick={handleToggleClassStatus}>
                 {isLoadingStatus ? (
                     <span className="text-slate-400 text-sm font-bold">Checking...</span>
                 ) : (
@@ -486,19 +568,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                         <div className={`text-sm font-black uppercase ${isClassOpen ? 'text-emerald-700' : 'text-rose-700'}`}>
                             {isClassOpen ? 'Class Open' : 'Class Closed'}
                         </div>
-                        <div className={`
-                            w-10 h-6 bg-slate-200 rounded-full relative transition-colors ml-2
-                            ${isClassOpen ? 'bg-emerald-400' : 'bg-slate-300'}
-                        `}>
-                            <div className={`
-                                absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform
-                                ${isClassOpen ? 'translate-x-4' : 'translate-x-0'}
-                            `}></div>
-                        </div>
                     </>
                 )}
             </div>
-
             <Button variant="ghost" onClick={onOpenSetup} className="text-slate-500 hover:bg-slate-50 hover:text-slate-700">⚙️ Settings</Button>
             <Button variant="outline" onClick={onLogout} className="border-slate-300 text-slate-600 hover:bg-slate-50">Log Out</Button>
         </div>
@@ -510,6 +582,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
               { id: 'create', label: 'Create Task', icon: '✨' },
               { id: 'calendar', label: 'Calendar', icon: '📅' },
               { id: 'progress', label: 'Progress', icon: '📊' },
+              { id: 'dictionary', label: 'Dictionary', icon: '📖' },
               { id: 'rewards', label: 'Rewards', icon: '🎁' },
               { id: 'assignments', label: 'Library', icon: '📚' },
               { id: 'logs', label: 'Activity', icon: '🕒' },
@@ -530,676 +603,314 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           ))}
       </div>
       
-      {/* Notifications */}
       {(lastSuccess || lastError) && (
           <div className={`p-6 rounded-2xl text-center text-lg font-bold animate-bounce-in shadow-sm border-l-8 ${lastSuccess ? 'bg-emerald-50 text-emerald-700 border-emerald-400' : 'bg-rose-50 text-rose-700 border-rose-400'}`}>
               {lastSuccess || lastError}
           </div>
       )}
 
-      {/* ... (REWARDS TAB Logic matches existing, just verifying update propagation) ... */}
-      {activeTab === 'rewards' && (
-        <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-             <SectionHeader title="Student Rewards" subtitle="Give points or custom stickers to your class." />
-
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Student Selection */}
-                <div className="lg:col-span-1 bg-slate-50 rounded-[2rem] border border-slate-200 p-6 flex flex-col h-[600px]">
-                    <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
-                        <h3 className="font-bold text-slate-700 text-lg">Class Roster</h3>
-                        <button 
-                            onClick={toggleSelectAllRewards}
-                            className="text-sm font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded-lg transition-colors"
-                        >
-                            {selectedStudentIds.size === studentData.length ? 'Deselect All' : 'Select All'}
-                        </button>
-                    </div>
-                    
-                    <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                        {studentData.map(s => {
-                            const isSelected = selectedStudentIds.has(s.id);
-                            return (
-                                <div 
-                                    key={s.id}
-                                    onClick={() => toggleRewardSelection(s.id)}
-                                    className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-center justify-between ${isSelected ? 'bg-indigo-100 border-indigo-300 shadow-sm' : 'bg-white border-transparent hover:border-slate-200'}`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>
-                                            {isSelected && <span className="text-white text-xs font-bold">✓</span>}
-                                        </div>
-                                        <div>
-                                            <span className={`font-bold block ${isSelected ? 'text-indigo-900' : 'text-slate-600'}`}>{s.name}</span>
-                                            <span className="text-[10px] text-slate-400 font-bold">⭐ {s.points}</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex gap-1">
-                                        {/* View Collection Button */}
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); setViewingStudent(s); }}
-                                            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition-colors"
-                                            title="View Collection"
-                                        >
-                                            👁️
-                                        </button>
-
-                                        {/* Permission Toggle */}
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); handleTogglePermission(s.id, !!s.canCreateStickers); }}
-                                            className={`w-8 h-8 flex items-center justify-center rounded-lg text-lg hover:bg-slate-100 transition-colors ${s.canCreateStickers ? 'grayscale-0' : 'grayscale'}`}
-                                            title={s.canCreateStickers ? "AI Creator Allowed" : "AI Creator Locked"}
-                                        >
-                                            {s.canCreateStickers ? '🔓' : '🔒'}
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-slate-200 text-center text-slate-400 font-bold text-xs">
-                        <p>{selectedStudentIds.size} Selected</p>
-                        <p className="mt-1">Click 🔒 to enable AI creation.<br/>Click 👁️ to see collection.</p>
-                    </div>
-                </div>
-
-                {/* Right Column: Action Panel */}
-                <div className="lg:col-span-2 flex flex-col gap-6">
-                    {/* Mode Toggle */}
-                    <div className="flex bg-slate-100 p-1 rounded-2xl self-start overflow-x-auto max-w-full">
-                        <button 
-                            onClick={() => setRewardMode('POINTS')}
-                            className={`px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${rewardMode === 'POINTS' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            <span>⭐</span> Give Points
-                        </button>
-                        <button 
-                            onClick={() => setRewardMode('STICKER')}
-                            className={`px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${rewardMode === 'STICKER' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            <span>🎨</span> AI Sticker
-                        </button>
-                        <button 
-                            onClick={() => setRewardMode('STORE')}
-                            className={`px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${rewardMode === 'STORE' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            <span>🛍️</span> Manage Store
-                        </button>
-                    </div>
-
-                    {/* POINTS MODE */}
-                    {rewardMode === 'POINTS' && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-[2rem] p-8 animate-fade-in flex-1 flex flex-col justify-center">
-                            <div className="max-w-md mx-auto w-full space-y-8">
-                                <div className="text-center">
-                                    <div className="text-6xl mb-4">🏆</div>
-                                    <h3 className="text-2xl font-extrabold text-slate-800">Award Class Points</h3>
-                                    <p className="text-slate-500 font-medium">Motivate selected students with stars.</p>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <InputLabel label="Amount" />
-                                    <div className="grid grid-cols-4 gap-3">
-                                        {[1, 5, 10, 20].map(amt => (
-                                            <button 
-                                                key={amt}
-                                                onClick={() => setRewardPoints(amt)}
-                                                className={`py-3 rounded-xl font-black text-lg border-2 transition-all ${rewardPoints === amt ? 'bg-indigo-500 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'}`}
-                                            >
-                                                +{amt}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <input 
-                                        type="number" 
-                                        value={rewardPoints}
-                                        onChange={e => setRewardPoints(Number(e.target.value))}
-                                        className="w-full text-center py-3 bg-white border-2 border-slate-200 rounded-xl font-bold text-slate-700 focus:border-indigo-400 outline-none"
-                                    />
-                                </div>
-
-                                <div>
-                                    <InputLabel label="Reason" />
-                                    <input 
-                                        type="text" 
-                                        value={rewardReason}
-                                        onChange={e => setRewardReason(e.target.value)}
-                                        placeholder="e.g. Great Participation!"
-                                        className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-indigo-400 outline-none"
-                                    />
-                                </div>
-
-                                <Button 
-                                    onClick={handleGivePoints}
-                                    isLoading={isSubmitting}
-                                    disabled={selectedStudentIds.size === 0}
-                                    className="w-full py-4 text-lg shadow-xl"
-                                >
-                                    Send Rewards ({selectedStudentIds.size})
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* AI STICKER MODE */}
-                    {rewardMode === 'STICKER' && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-[2rem] p-8 animate-fade-in flex-1">
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
-                                 <div className="flex flex-col justify-center space-y-6">
-                                     <div>
-                                         <h3 className="text-2xl font-extrabold text-slate-800 mb-2">AI Sticker Studio</h3>
-                                         <p className="text-slate-500 text-sm">Create a unique AI sticker and add it to student collections.</p>
-                                     </div>
-                                     
-                                     <div>
-                                         <div className="flex items-center justify-between mb-2">
-                                            <InputLabel label="Describe Sticker" />
-                                            {/* Model Toggle Switch */}
-                                            <div className="flex bg-slate-200 p-1 rounded-lg gap-1">
-                                                <button
-                                                    onClick={() => setStickerModel('FAST')}
-                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${stickerModel === 'FAST' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                                    title="Nano Banana (Fast)"
-                                                >
-                                                    ⚡ Nano Fast
-                                                </button>
-                                                <button
-                                                    onClick={() => setStickerModel('QUALITY')}
-                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${stickerModel === 'QUALITY' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                                    title="Pro (High Quality)"
-                                                >
-                                                    ✨ Pro HD
-                                                </button>
-                                                <button
-                                                    onClick={() => setStickerModel('OFFLINE')}
-                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${stickerModel === 'OFFLINE' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                                                    title="Toy Mode (No API Quota)"
-                                                >
-                                                    🧸 Toy
-                                                </button>
-                                            </div>
-                                         </div>
-                                         
-                                         {/* Keyword Chips */}
-                                         <div className="mb-4 space-y-2">
-                                            {Object.entries(STICKER_KEYWORDS).map(([category, words]) => (
-                                                <div key={category} className="flex flex-wrap gap-2 items-center">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase w-16">{category}</span>
-                                                    {words.map(word => (
-                                                        <button
-                                                            key={word}
-                                                            onClick={() => addToPrompt(word)}
-                                                            className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded-full text-xs font-bold hover:bg-purple-50 hover:border-purple-200 hover:text-purple-600 transition-colors"
-                                                        >
-                                                            {word}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            ))}
-                                         </div>
-
-                                         <textarea 
-                                             value={stickerPrompt}
-                                             onChange={e => setStickerPrompt(e.target.value)}
-                                             placeholder="e.g. A happy tiger eating watermelon"
-                                             className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-700 focus:border-purple-400 outline-none resize-none h-24"
-                                         />
-                                     </div>
-                                     
-                                     <Button 
-                                         variant="secondary" 
-                                         onClick={handleGenerateSticker}
-                                         isLoading={isSubmitting && !generatedSticker}
-                                         disabled={!stickerPrompt}
-                                     >
-                                         ✨ Generate Preview
-                                     </Button>
-                                 </div>
-
-                                 <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-6 relative">
-                                     {generatedSticker ? (
-                                         <div className="text-center animate-fade-in">
-                                             <img src={generatedSticker} alt="Preview" className="w-48 h-48 object-contain mb-6 drop-shadow-xl" />
-                                             <Button 
-                                                 onClick={handleGiftSticker}
-                                                 isLoading={isSubmitting}
-                                                 disabled={selectedStudentIds.size === 0}
-                                                 className="w-full bg-purple-600 hover:bg-purple-700 border-purple-800 shadow-purple-200"
-                                             >
-                                                 Gift to {selectedStudentIds.size} Students
-                                             </Button>
-                                             <button onClick={() => setGeneratedSticker(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-rose-500">Discard</button>
-                                         </div>
-                                     ) : (
-                                         <div className="text-center text-slate-300">
-                                             <div className="text-6xl mb-2 opacity-50">🎨</div>
-                                             <p className="font-bold text-sm">Preview will appear here</p>
-                                         </div>
-                                     )}
-                                 </div>
-                             </div>
-                        </div>
-                    )}
-
-                    {/* STORE MANAGEMENT MODE */}
-                    {rewardMode === 'STORE' && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-[2rem] p-8 animate-fade-in flex-1">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
-                                <div className="space-y-6">
-                                    <div>
-                                        <h3 className="text-2xl font-extrabold text-slate-800 mb-2">Import Stickers</h3>
-                                        <p className="text-slate-500 text-sm">Add Google Drive links here. Students can buy these for 100 points.</p>
-                                    </div>
-
-                                    <form onSubmit={handleAddStoreItem} className="space-y-4">
-                                        <div>
-                                            <InputLabel label="Sticker Name" />
-                                            <input 
-                                                value={newStoreName}
-                                                onChange={e => setNewStoreName(e.target.value)}
-                                                placeholder="e.g. Red Dragon"
-                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-400"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <InputLabel label="Google Drive Link" />
-                                            <input 
-                                                value={newStoreUrl}
-                                                onChange={e => setNewStoreUrl(e.target.value)}
-                                                placeholder="https://drive.google.com/..."
-                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-400"
-                                                required
-                                            />
-                                            <p className="text-[10px] text-slate-400 mt-1 ml-1">Paste standard sharing link. Make sure it's "Anyone with link".</p>
-                                        </div>
-                                        <div>
-                                            <InputLabel label="Cost (Points)" />
-                                            <input 
-                                                type="number"
-                                                value={newStoreCost}
-                                                onChange={e => setNewStoreCost(Number(e.target.value))}
-                                                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-400"
-                                                required
-                                            />
-                                        </div>
-                                        <Button type="submit" isLoading={isSubmitting} variant="secondary" className="w-full">
-                                            Add to Store
-                                        </Button>
-                                    </form>
-                                </div>
-
-                                <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col h-[400px]">
-                                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Current Inventory</h4>
-                                    <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                                        {storeItems.map(item => (
-                                            <div key={item.id} className={`flex items-center gap-3 p-2 border rounded-xl group transition-all cursor-pointer ${selectedStoreItem?.id === item.id ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-slate-50'}`} onClick={() => setSelectedStoreItem(item)}>
-                                                <img src={item.imageUrl} alt={item.name} className="w-12 h-12 rounded-lg object-cover bg-slate-100" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-bold text-slate-700 truncate">{item.name}</p>
-                                                    <p className="text-xs text-slate-400 font-bold">⭐ {item.cost}</p>
-                                                </div>
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteStoreItem(item.id); }}
-                                                    className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                                                >
-                                                    🗑️
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {storeItems.length === 0 && <p className="text-center text-slate-400 text-sm mt-10">Store is empty.</p>}
-                                    </div>
-                                    
-                                    {selectedStoreItem && (
-                                        <div className="pt-4 mt-2 border-t border-slate-100">
-                                            <Button 
-                                                onClick={handleGiftStoreItem} 
-                                                className="w-full text-xs py-2"
-                                                disabled={selectedStudentIds.size === 0}
-                                            >
-                                                Gift Selected Sticker ({selectedStudentIds.size})
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-             </div>
-        </div>
-      )}
-
-      {/* --- CREATE TAB --- */}
+      {/* CREATE TAB */}
       {activeTab === 'create' && (
-        <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-            <SectionHeader title={editingId ? 'Edit Assignment' : 'Create New Assignment'} subtitle="Design a practice session. It will appear on students' dashboards immediately." />
-            
-            <form onSubmit={handleCreateOrUpdateHomework} className="space-y-10">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <div>
-                        <InputLabel label="Title" />
-                        <input 
-                            type="text" 
-                            required 
-                            value={title} 
-                            onChange={e => setTitle(e.target.value)} 
-                            placeholder="e.g., Week 1: Family Members" 
-                            className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-bold text-xl text-slate-700 transition-all placeholder-slate-300" 
-                        />
-                    </div>
-                    <div>
-                        <InputLabel label="Task Type" />
-                        <div className="relative">
-                            <select 
-                                value={type} 
-                                onChange={e => setType(e.target.value as any)} 
-                                className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-bold text-xl text-slate-700 appearance-none cursor-pointer"
-                            >
-                                <option value="WRITING">✍️ Writing Practice</option>
-                                <option value="PINYIN">🗣️ Pinyin Tones</option>
-                                <option value="FILL_IN_BLANKS">🧩 Sentence Builder</option>
-                            </select>
-                            <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">▼</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div>
-                    <InputLabel label="Instructions (Optional)" />
-                    <textarea 
-                        value={desc} 
-                        onChange={e => setDesc(e.target.value)} 
-                        placeholder="Add specific instructions for your students..." 
-                        className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-medium text-lg text-slate-700 min-h-[120px] resize-y" 
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <div>
-                        <InputLabel label="Start Date" />
-                        <input type="date" required value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 font-bold text-lg text-slate-700" />
-                    </div>
-                    <div>
-                        <InputLabel label="Due Date" />
-                        <input type="date" required value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 font-bold text-lg text-slate-700" />
-                    </div>
-                </div>
-                
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                     <InputLabel label="Assign To Specific Students (Optional)" />
-                     <div className="flex flex-wrap gap-4 mt-4">
-                         <button 
-                            type="button" 
-                            onClick={() => setAssignedTo([])} 
-                            className={`px-6 py-3 rounded-full text-base font-bold transition-all border-2 ${assignedTo.length === 0 ? 'bg-indigo-500 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'}`}
-                         >
-                            All Class
-                         </button>
-                         {studentData.map(student => (
-                             <button
-                                key={student.id}
-                                type="button"
-                                onClick={() => toggleStudent(student.id)}
-                                className={`px-6 py-3 rounded-full text-base font-bold transition-all border-2 ${assignedTo.includes(student.id) ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'}`}
-                             >
-                                {student.name}
-                             </button>
-                         ))}
-                     </div>
-                </div>
-
-                <div>
-                    <InputLabel label="Content (Characters / Sentences)" />
-                    <p className="text-base text-slate-400 mb-3 font-medium">Separate items with spaces or commas. For Sentence Builder, separate words with # (e.g., 我#爱#妈妈).</p>
-                    <textarea 
-                        required 
-                        value={chars} 
-                        onChange={e => setChars(e.target.value)} 
-                        placeholder="Paste characters here..." 
-                        className="w-full px-8 py-8 h-64 rounded-[2rem] bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 text-3xl font-serif-sc text-slate-800 leading-relaxed shadow-inner" 
-                    />
-                </div>
-
-                <Button type="submit" isLoading={isSubmitting} className="w-full py-6 text-xl font-black rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50">
-                    {editingId ? 'Update Assignment' : '🚀 Publish Assignment'}
-                </Button>
-            </form>
-        </div>
-      )}
-
-      {/* --- PROGRESS TAB --- */}
-      {activeTab === 'progress' && (
-         <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-10 gap-8">
-                 <div>
-                    <SectionHeader title="Student Progress" subtitle="Track performance and completion rates." />
-                 </div>
-                 
-                 {/* Filters */}
-                 <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
-                    <div className="flex items-center gap-3">
-                        <span className="text-slate-400 font-bold text-sm uppercase">From</span>
-                        <input 
-                            type="date" 
-                            value={progressStartDate} 
-                            onChange={e => setProgressStartDate(e.target.value)} 
-                            className="px-4 py-2 rounded-xl border border-slate-200 text-base font-bold text-slate-700 focus:border-indigo-300 outline-none bg-white"
-                        />
-                    </div>
-                    <span className="text-slate-300 font-bold text-xl">→</span>
-                    <div className="flex items-center gap-3">
-                        <span className="text-slate-400 font-bold text-sm uppercase">To</span>
-                        <input 
-                            type="date" 
-                            value={progressEndDate} 
-                            onChange={e => setProgressEndDate(e.target.value)} 
-                            className="px-4 py-2 rounded-xl border border-slate-200 text-base font-bold text-slate-700 focus:border-indigo-300 outline-none bg-white"
-                        />
-                    </div>
-                    <Button onClick={loadTabData} isLoading={isLoadingData} variant="secondary" className="px-8 py-3 text-base rounded-xl ml-4">
-                        Refresh Data
+          <div className="max-w-3xl mx-auto bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+              <SectionHeader 
+                title={editingId ? "Edit Assignment" : "Create New Task"} 
+                subtitle="Assign work to your students." 
+                rightElement={editingId ? (
+                    <Button variant="secondary" size="sm" onClick={handleResetForm}>
+                        + New
                     </Button>
-                 </div>
-             </div>
-             
-             {isLoadingData ? (
-                 <div className="text-center py-20 text-slate-400 font-bold text-xl animate-pulse">Loading progress data...</div>
-             ) : (
-                 <div className="overflow-hidden rounded-[2rem] border border-slate-100 shadow-sm">
-                     <table className="w-full text-left border-collapse">
-                         <thead className="bg-slate-50 text-slate-500 font-bold text-sm uppercase tracking-wider">
-                             <tr>
-                                 <th className="p-6">Student Name</th>
-                                 <th className="p-6">Avg Score</th>
-                                 <th className="p-6">Completed Tasks</th>
-                                 <th className="p-6">Items Practiced</th>
-                                 <th className="p-6">Last Active</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-100 text-slate-700 font-medium text-lg bg-white">
-                             {studentData.length > 0 ? studentData.map((s, idx) => (
-                                 <tr key={s.id} className="hover:bg-indigo-50/30 transition-colors even:bg-slate-50/30">
-                                     <td className="p-6 font-bold text-slate-800">{s.name}</td>
-                                     <td className="p-6">
-                                         <span className={`px-4 py-2 rounded-xl text-base font-black ${s.averageScore >= 90 ? 'bg-emerald-100 text-emerald-700' : s.averageScore >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
-                                             {s.averageScore}%
-                                         </span>
-                                     </td>
-                                     <td className="p-6">{s.assignmentsCompleted}</td>
-                                     <td className="p-6 text-slate-500">{s.totalPracticed}</td>
-                                     <td className="p-6 text-base text-slate-400 font-mono">
-                                         {s.lastActive ? new Date(s.lastActive).toLocaleDateString() : '-'}
-                                     </td>
-                                 </tr>
-                             )) : (
-                                <tr><td colSpan={5} className="p-16 text-center text-slate-400 text-lg">No activity found for this period.</td></tr>
-                             )}
-                         </tbody>
-                     </table>
-                 </div>
-             )}
-         </div>
-      )}
-
-      {/* --- LOGS TAB --- */}
-      {activeTab === 'logs' && (
-        <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-            <div className="flex justify-between items-center mb-8">
-                <SectionHeader title="Activity Logs" subtitle="Recent sign-ins and system events." />
-                <Button onClick={loadTabData} isLoading={isLoadingData} variant="secondary">
-                    Refresh Logs
-                </Button>
-            </div>
-            
-            {isLoadingData ? (
-                <div className="text-center py-20 text-slate-400 font-bold text-xl animate-pulse">Loading logs...</div>
-            ) : (
-                <div className="overflow-hidden rounded-[2rem] border border-slate-100 shadow-sm">
-                    <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50 text-slate-500 font-bold text-sm uppercase tracking-wider">
-                            <tr>
-                                <th className="p-6">Time</th>
-                                <th className="p-6">Student</th>
-                                <th className="p-6">Action</th>
-                                <th className="p-6">Device</th>
-                                <th className="p-6">ID</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-slate-700 font-medium text-base bg-white">
-                            {loginLogs.length > 0 ? loginLogs.map((log, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                    <td className="p-6 text-slate-500 font-mono text-sm">
-                                        {new Date(log.timestamp).toLocaleString()}
-                                    </td>
-                                    <td className="p-6 font-bold">{log.name}</td>
-                                    <td className="p-6">
-                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${log.action === 'Login' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                                            {log.action}
-                                        </span>
-                                    </td>
-                                    <td className="p-6 text-sm font-bold text-indigo-500">
-                                        {log.device || 'Unknown'}
-                                    </td>
-                                    <td className="p-6 text-slate-400 text-xs font-mono">{log.studentId}</td>
-                                </tr>
-                            )) : (
-                                <tr><td colSpan={5} className="p-16 text-center text-slate-400">No logs found.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-      )}
-
-      {/* --- CALENDAR TAB --- */}
-      {activeTab === 'calendar' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-                  <SectionHeader title={calEditingId ? 'Edit Event' : 'Add Event'} subtitle="Manage school schedule." />
+                ) : undefined}
+              />
+              <form onSubmit={handleCreateOrUpdateHomework} className="space-y-6">
+                  <div><InputLabel label="Title" /><input value={title} onChange={e => setTitle(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-900 outline-none focus:border-indigo-400" placeholder="Week 1 Homework" required /></div>
+                  <div><InputLabel label="Description" /><textarea value={desc} onChange={e => setDesc(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-900 outline-none focus:border-indigo-400" placeholder="Practice these words..." rows={2} /></div>
                   
-                  <form onSubmit={handleSaveCalendarEvent} className="space-y-8">
+                  <div className="grid grid-cols-2 gap-6">
                       <div>
-                          <InputLabel label="Date" />
-                          <input type="date" value={calDate} onChange={e => setCalDate(e.target.value)} required className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-bold text-lg text-slate-700" />
-                      </div>
-                      <div>
-                          <InputLabel label="Event Title" />
-                          <input type="text" value={calTitle} onChange={e => setCalTitle(e.target.value)} placeholder="e.g. Mid-term Exam" required className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-bold text-lg text-slate-700" />
-                      </div>
-                      <div>
-                          <InputLabel label="Event Type" />
-                          <div className="relative">
-                            <select value={calType} onChange={e => setCalType(e.target.value as CalendarEventType)} className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-bold text-lg text-slate-700 appearance-none">
-                                <option value="SCHOOL_DAY">🏫 School Day</option>
-                                <option value="SPECIAL_EVENT">🎈 Special Event</option>
-                                <option value="NO_SCHOOL">🧸 No School (Toys/Play)</option>
-                            </select>
-                            <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">▼</div>
+                          <InputLabel label="Type" />
+                          <div className="flex gap-2">
+                              {['WRITING', 'PINYIN', 'FILL_IN_BLANKS'].map(t => (
+                                  <button key={t} type="button" onClick={() => setType(t as any)} className={`flex-1 py-3 rounded-xl font-bold text-xs ${type === t ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                                      {t === 'FILL_IN_BLANKS' ? 'SENTENCE' : t}
+                                  </button>
+                              ))}
                           </div>
                       </div>
                       <div>
-                          <InputLabel label="Description (Optional)" />
-                          <textarea value={calDesc} onChange={e => setCalDesc(e.target.value)} rows={3} className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-slate-100 focus:bg-white focus:border-indigo-300 outline-none font-medium text-lg text-slate-700 resize-none" />
+                          <InputLabel label="Due Date" />
+                          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-900 outline-none focus:border-indigo-400" />
                       </div>
-                      <div className="flex gap-4 pt-4">
-                          <Button type="submit" className="flex-1 py-5 text-lg rounded-2xl shadow-lg bg-indigo-600" isLoading={isSubmitting}>Save Event</Button>
-                          {calEditingId && (
-                              <>
-                                <Button variant="danger" type="button" onClick={() => handleDeleteCalendarEvent(calEditingId)} className="rounded-2xl">Delete</Button>
-                                <Button variant="ghost" type="button" onClick={() => setCalEditingId(null)} className="rounded-2xl">Cancel</Button>
-                              </>
-                          )}
+                  </div>
+
+                  <div>
+                      <InputLabel label={type === 'FILL_IN_BLANKS' ? "Sentences (One per line, use # for blanks)" : "Characters (Comma or space separated)"} />
+                      <textarea value={chars} onChange={e => setChars(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-lg text-slate-900 outline-none focus:border-indigo-400" rows={5} placeholder={type === 'FILL_IN_BLANKS' ? "我#是#学生\n你好#吗" : "你, 好, 吗"} required />
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                      {editingId && <Button type="button" variant="ghost" onClick={handleResetForm}>Cancel Edit</Button>}
+                      <Button type="submit" isLoading={isSubmitting} className="flex-1 text-lg">Save Assignment</Button>
+                  </div>
+              </form>
+          </div>
+      )}
+
+      {/* DICTIONARY TAB */}
+      {activeTab === 'dictionary' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+                  <SectionHeader title="Add Word" subtitle="Build your audio library." />
+                  <form onSubmit={handleAddToDictionary} className="space-y-6">
+                      <div><InputLabel label="Character" /><input value={dictChar} onChange={e => setDictChar(e.target.value)} placeholder="e.g. 你好" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-400" required /></div>
+                      <div><InputLabel label="Pinyin (Optional)" /><input value={dictPinyin} onChange={e => setDictPinyin(e.target.value)} placeholder="e.g. ni3 hao3" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                      <div><InputLabel label="Definition (Optional)" /><input value={dictDef} onChange={e => setDictDef(e.target.value)} placeholder="e.g. Hello" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                      <div>
+                          <InputLabel label="Audio (Upload or Link)" />
+                          <div className="flex flex-col gap-2">
+                              <div className="flex gap-2">
+                                  <input 
+                                      value={dictAudio} 
+                                      onChange={e => setDictAudio(e.target.value)} 
+                                      placeholder="https://... or /audio/..." 
+                                      className="flex-1 px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-xs text-slate-700 outline-none focus:border-indigo-400" 
+                                  />
+                                  {dictAudio && <button type="button" onClick={handleTestAudio} className="px-4 py-2 bg-indigo-100 text-indigo-600 rounded-xl font-bold text-xs hover:bg-indigo-200">Test 🔊</button>}
+                              </div>
+                              <div className="flex gap-2">
+                                  <button type="button" onClick={setLocalAudio} className="flex-1 py-3 px-4 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs hover:bg-slate-200 transition-colors">Use Local Path</button>
+                                  <div className="flex-1 relative">
+                                      <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="audio/*" className="hidden" id="audio-upload" />
+                                      <label htmlFor="audio-upload" className={`w-full h-full py-3 px-4 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50 text-indigo-600 font-bold text-xs flex items-center justify-center cursor-pointer hover:bg-indigo-100 transition-colors ${isUploadingAudio ? 'opacity-50 cursor-wait' : ''}`}>
+                                          {isUploadingAudio ? 'Uploading...' : '📁 Upload'}
+                                      </label>
+                                  </div>
+                              </div>
+                          </div>
                       </div>
+                      <Button type="submit" isLoading={isSubmitting || isUploadingAudio} disabled={!dictChar || isUploadingAudio} className="w-full">
+                          {isUploadingAudio ? 'Uploading Audio...' : 'Save to Dictionary'}
+                      </Button>
                   </form>
               </div>
-              
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col">
-                  <h3 className="text-xl font-bold text-slate-400 uppercase tracking-widest mb-8 px-2">Calendar Preview</h3>
-                  <div className="flex-1">
-                    <CalendarView 
-                        isTeacher 
-                        onEventClick={e => {
-                            setCalEditingId(e.id); 
-                            setCalDate(e.date); 
-                            setCalTitle(e.title); 
-                            setCalType(e.type); 
-                            setCalDesc(e.description || "");
-                            setLastSuccess(""); 
-                        }} 
-                        refreshTrigger={calendarRefreshTrigger}
-                    />
+              <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-xl font-extrabold text-slate-700">Word List ({Object.keys(dictionary).length})</h3>
+                      <Button variant="outline" onClick={loadTabData} size="sm">Refresh</Button>
+                  </div>
+                  <div className="overflow-y-auto max-h-[600px] pr-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {Object.entries(dictionary).map(([char, data]) => (
+                              <div key={char} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center group hover:border-indigo-200 transition-all">
+                                  <div><div className="text-2xl font-bold text-slate-800">{char}</div><div className="text-xs font-bold text-slate-400">{data.pinyin} • {data.definition}</div></div>
+                                  <div className="flex items-center gap-2">
+                                      {data.audio && <button onClick={() => { const url = data.audio.startsWith('/') ? data.audio : convertAudioDriveLink(data.audio); const a = new Audio(url); a.play(); }} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200" title="Play Audio">🔊</button>}
+                                      <button onClick={() => handleDeleteFromDictionary(char)} className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center hover:bg-rose-200 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">🗑️</button>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* --- ASSIGNMENTS LIST TAB --- */}
+      {/* ASSIGNMENTS TAB */}
       {activeTab === 'assignments' && (
-          <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-200">
-               <SectionHeader title="Library" subtitle="All created assignments." />
-               
-               {isLoadingData ? (
-                   <div className="text-center py-20 text-slate-400 font-bold text-xl">Loading...</div>
-               ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {assignments.map(l => (
-                            <div key={l.id} className="border-2 border-slate-100 rounded-[2rem] p-8 flex flex-col justify-between hover:border-indigo-200 hover:bg-indigo-50/20 transition-all group shadow-sm hover:shadow-md bg-white">
-                                <div className="mb-6">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <h3 className="font-bold text-2xl text-slate-800">{l.title}</h3>
-                                        <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-black uppercase tracking-wide">
-                                            {l.type.replace(/_/g, ' ')}
-                                        </span>
-                                    </div>
-                                    <div className="text-base text-slate-500 font-medium space-y-2">
-                                        <p className="flex items-center gap-2">📅 {l.startDate} → {l.endDate}</p>
-                                        <p className="flex items-center gap-2">🔢 {l.characters.length} Items</p>
-                                        {l.assignedTo && l.assignedTo.length > 0 && <p className="text-indigo-600 font-bold flex items-center gap-2">👤 {l.assignedTo.length} Student(s)</p>}
-                                    </div>
-                                </div>
-                                <div className="flex justify-end pt-6 border-t border-slate-100">
-                                     <button onClick={() => {
-                                         setEditingId(l.id); setTitle(l.title); setDesc(l.description); setChars(l.characters.join(' ')); setType(l.type); setStartDate(l.startDate || ''); setEndDate(l.endDate || ''); setAssignedTo(l.assignedTo || []); setActiveTab('create');
-                                     }} className="px-6 py-3 bg-white text-indigo-600 border-2 border-indigo-100 rounded-xl text-sm font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-sm">
-                                        Edit Assignment
-                                     </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-               )}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+              <SectionHeader title="Assignment Library" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {assignments.map(lesson => {
+                      const now = new Date(); now.setHours(0,0,0,0);
+                      const start = lesson.startDate ? parseLocalDate(lesson.startDate) : null;
+                      const end = lesson.endDate ? parseLocalDate(lesson.endDate) : null;
+                      let status = { label: 'Active', color: 'bg-emerald-100 text-emerald-700' };
+                      if (start && now < start) status = { label: 'Scheduled', color: 'bg-amber-100 text-amber-700' };
+                      else if (end && now > end) status = { label: 'Expired', color: 'bg-slate-200 text-slate-500' };
+                      return (
+                      <div key={lesson.id} className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 hover:border-indigo-200 transition-all group relative">
+                          <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${status.color}`}>{status.label}</div>
+                          <div className="flex justify-between items-start mb-4 pr-16"><h3 className="font-extrabold text-xl text-slate-800 line-clamp-1">{lesson.title}</h3></div>
+                          <div className="mb-4"><span className="bg-white px-2 py-1 rounded-md text-xs font-bold text-slate-400 shadow-sm border border-slate-100">{lesson.type}</span></div>
+                          <p className="text-slate-500 text-sm mb-4 line-clamp-2 h-10">{lesson.description}</p>
+                          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">{lesson.characters.length} Items • Due {parseLocalDate(lesson.endDate).toLocaleDateString()}</div>
+                          <div className="flex gap-2 mt-4">
+                              <Button size="sm" variant="secondary" onClick={() => handleEditAssignment(lesson)} className="flex-1">Edit</Button>
+                              <Button size="sm" variant="danger" onClick={() => handleDeleteAssignment(lesson.id)}>Delete</Button>
+                          </div>
+                      </div>
+                  )})}
+                  {assignments.length === 0 && <div className="col-span-full text-center py-20 text-slate-400 font-bold">No assignments found.</div>}
+              </div>
           </div>
       )}
 
-      {/* --- COLLECTION MODAL --- */}
-      {viewingStudent && (
-          <CollectionModal 
-              student={viewingStudent} 
-              onClose={() => setViewingStudent(null)} 
-          />
+      {/* CALENDAR TAB */}
+      {activeTab === 'calendar' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2"><CalendarView isTeacher onDateSelect={handleDateSelect} onEventClick={handleEventClick} refreshTrigger={calendarRefreshTrigger} /></div>
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 h-fit">
+                  <SectionHeader title={calEventId ? "Edit Event" : "Add Event"} subtitle={new Date(calDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric'})} />
+                  <form onSubmit={handleSaveEvent} className="space-y-4">
+                      <div><InputLabel label="Event Title" /><input value={calTitle} onChange={e => setCalTitle(e.target.value)} placeholder="e.g., Pizza Party" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-400" required /></div>
+                      <div><InputLabel label="Event Type" />
+                          <select value={calType} onChange={e => setCalType(e.target.value as CalendarEventType)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-400">
+                              <option value="SCHOOL_DAY">School Day 🏫</option><option value="SPECIAL_EVENT">Fun Event 🎈</option><option value="NO_SCHOOL">No School / Holiday 🧸</option>
+                          </select>
+                      </div>
+                      <div><InputLabel label="Description (Optional)" /><textarea value={calDesc} onChange={e => setCalDesc(e.target.value)} placeholder="Details..." className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium outline-none focus:border-indigo-400" rows={2} /></div>
+                      <div className="flex gap-2 pt-2"><Button type="submit" isLoading={isSubmitting} className="flex-1">{calEventId ? "Update" : "Save Event"}</Button>{calEventId && (<Button type="button" variant="danger" onClick={handleDeleteEvent}>Delete</Button>)}</div>
+                      {calEventId && <Button type="button" variant="ghost" onClick={() => { setCalEventId(null); setCalTitle(''); setCalDesc(''); }} className="w-full">Cancel</Button>}
+                  </form>
+              </div>
+          </div>
       )}
+
+      {/* PROGRESS TAB */}
+      {activeTab === 'progress' && (
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+              <SectionHeader title="Student Progress" />
+              <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                      <thead>
+                          <tr className="border-b-2 border-slate-100">
+                              <th className="pb-4 pl-4 font-extrabold text-slate-400 uppercase text-xs">Student</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Last Active</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Assignments</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Avg Score</th>
+                              <th className="pb-4 pr-4 text-right font-extrabold text-slate-400 uppercase text-xs">Actions</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                          {studentData.map(s => (
+                              <tr key={s.id} className="group hover:bg-slate-50 transition-colors">
+                                  <td className="py-4 pl-4 font-bold text-slate-700">{s.name}</td>
+                                  <td className="py-4 text-slate-500 text-sm">{s.lastActive ? new Date(s.lastActive).toLocaleDateString() : '-'}</td>
+                                  <td className="py-4"><span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold">{s.assignmentsCompleted} Done</span></td>
+                                  <td className="py-4 font-bold text-indigo-600">{s.averageScore}%</td>
+                                  <td className="py-4 pr-4 text-right"><button onClick={() => setViewingStudent(s)} className="text-indigo-500 font-bold text-xs hover:underline">View Collection</button></td>
+                              </tr>
+                          ))}
+                          {studentData.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-slate-400 font-bold">No students found.</td></tr>}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      )}
+
+      {/* REWARDS TAB */}
+      {activeTab === 'rewards' && (
+          <div className="space-y-8">
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                  <div className="flex justify-between items-center mb-6">
+                      <SectionHeader title="Class Rewards" subtitle="Gamify your classroom." />
+                      <div className="flex gap-2">
+                          <Button size="sm" variant={rewardMode === 'POINTS' ? 'primary' : 'outline'} onClick={() => setRewardMode('POINTS')}>Points</Button>
+                          <Button size="sm" variant={rewardMode === 'STICKER' ? 'primary' : 'outline'} onClick={() => setRewardMode('STICKER')}>Sticker Gift</Button>
+                          <Button size="sm" variant={rewardMode === 'STORE' ? 'primary' : 'outline'} onClick={() => setRewardMode('STORE')}>Manage Store</Button>
+                      </div>
+                  </div>
+
+                  {/* POINTS MODE */}
+                  {rewardMode === 'POINTS' && (<div><div className="flex gap-4 mb-6 items-center bg-slate-50 p-4 rounded-2xl border border-slate-200"><div className="flex items-center gap-2"><span className="font-bold text-slate-500 text-sm">Amount:</span><input type="number" value={rewardPoints} onChange={e => setRewardPoints(Number(e.target.value))} className="w-20 px-3 py-2 rounded-lg border-2 border-slate-200 font-bold outline-none" /></div><div className="flex-1"><input value={rewardReason} onChange={e => setRewardReason(e.target.value)} placeholder="Reason (e.g. Good Participation)" className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 font-medium outline-none" /></div><Button onClick={handleGivePoints} disabled={selectedStudentIds.size === 0}>Give to {selectedStudentIds.size || '0'} Students</Button></div><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-indigo-200'}`}><div className="flex justify-between items-start mb-2"><div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-xs">✓</span>}</div><span className="font-black text-amber-500 text-xs">⭐ {s.points}</span></div><p className="font-bold text-slate-700 truncate">{s.name}</p></div>))}</div>{studentData.length === 0 && <div className="text-center py-10 text-slate-400">No students found.</div>}<div className="mt-4"><Button variant="ghost" size="sm" onClick={toggleSelectAll}>Select All</Button></div></div>)}
+                  
+                  {/* STICKER GIFT MODE */}
+                  {rewardMode === 'STICKER' && (<div><div className="mb-6"><h4 className="font-extrabold text-slate-600 mb-3">1. Select Students ({selectedStudentIds.size})</h4><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-[150px] overflow-y-auto pr-2">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-2 rounded-xl border cursor-pointer text-xs font-bold transition-all flex items-center gap-2 ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 text-indigo-700' : 'bg-white border-slate-100 text-slate-500'}`}><div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-[10px]">✓</span>}</div><span className="truncate">{s.name}</span></div>))}</div>{studentData.length === 0 && <div className="text-center py-4 text-slate-400 text-xs">No students found.</div>}<Button variant="ghost" size="sm" onClick={toggleSelectAll} className="mt-2 text-xs h-8">Select All</Button></div><div className="border-t border-slate-100 pt-6"><div className="flex justify-between items-center mb-4"><h4 className="font-extrabold text-slate-600">2. Select Sticker</h4><Button onClick={handleGiveSticker} disabled={selectedStudentIds.size === 0 || !selectedSticker}>Send Sticker</Button></div><div className="max-h-[400px] overflow-y-auto pr-2">{(() => { const allItems = [...storeItems, ...STICKER_CATALOG]; const grouped: Record<string, typeof allItems> = {}; allItems.forEach(item => { const cat = item.category || 'Misc.'; if (!grouped[cat]) grouped[cat] = []; if (!grouped[cat].find(i => i.id === item.id)) { grouped[cat].push(item); } }); return Object.entries(grouped).sort().map(([category, items]) => (<div key={category} className="mb-6"><h5 className="font-black text-slate-400 text-xs uppercase mb-3 sticky top-0 bg-white z-10 py-2 border-b border-slate-100">{category}</h5><div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">{items.map((item, idx) => (<div key={`${item.id}-${idx}`} onClick={() => setSelectedSticker(item)} className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-2 cursor-pointer transition-all ${selectedSticker?.id === item.id ? 'bg-emerald-50 border-emerald-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-slate-300'}`} title={item.name}>{item.imageUrl ? <img src={convertDriveLink(item.imageUrl)} alt={item.name} className="w-full h-full object-contain" /> : <div className="text-4xl select-none">{(item as any).emoji}</div>}</div>))}</div></div>)); })()}</div></div></div>)}
+                  
+                  {/* STORE MANAGEMENT MODE */}
+                  {rewardMode === 'STORE' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div>
+                              <h4 className="font-extrabold text-slate-600 mb-4">Add Store Item</h4>
+                              <form onSubmit={handleAddStoreItem} className="space-y-4">
+                                  <input value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Item Name" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" required />
+                                  <input value={newStoreUrl} onChange={e => setNewStoreUrl(e.target.value)} placeholder="Image URL (Google Drive Link)" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium outline-none" required />
+                                  <div className="flex gap-4">
+                                      <input type="number" value={newStoreCost} onChange={e => setNewStoreCost(Number(e.target.value))} placeholder="Cost" className="w-24 px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" required />
+                                      {/* Updated Category Input with Suggestions from existing Store Items */}
+                                      <div className="flex-1 relative">
+                                          <input 
+                                            list="category-suggestions" 
+                                            value={newStoreCategory} 
+                                            onChange={e => setNewStoreCategory(e.target.value)} 
+                                            placeholder="Category"
+                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" 
+                                          />
+                                          <datalist id="category-suggestions">
+                                              {/* Populate suggestions dynamically from what is actually in the store */}
+                                              {Array.from(new Set(storeItems.map(i => i.category || 'Misc.'))).sort().map(c => (
+                                                  <option key={c} value={c} />
+                                              ))}
+                                              <option value="Animals" />
+                                              <option value="Food" />
+                                              <option value="Rewards" />
+                                          </datalist>
+                                      </div>
+                                  </div>
+                                  <Button type="submit" isLoading={isSubmitting} className="w-full">Add Item</Button>
+                              </form>
+                          </div>
+                          <div>
+                              <h4 className="font-extrabold text-slate-600 mb-4">Current Items</h4>
+                              <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
+                                  {storeItems.map(item => (
+                                      <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                          <div className="flex items-center gap-3">
+                                              <div className="w-10 h-10 rounded-lg bg-white p-1 border border-slate-200 flex items-center justify-center">
+                                                  {item.imageUrl ? <img src={convertDriveLink(item.imageUrl)} className="w-full h-full object-contain" /> : <span className="text-xl">{(item as any).emoji || '📦'}</span>}
+                                              </div>
+                                              <div>
+                                                  <div className="font-bold text-slate-700 text-sm">{item.name}</div>
+                                                  <div className="text-xs text-slate-400 font-bold flex items-center gap-2">
+                                                      <span>⭐ {item.cost}</span>
+                                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider text-slate-500">{item.category || 'Misc.'}</span>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                          <button onClick={() => handleDeleteStoreItem(item.id)} className="text-rose-400 hover:text-rose-600 font-bold text-xs">Delete</button>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+                      </div>
+                  )}
+              </div>
+              
+              {/* Class Goal Section */}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm"><div className="flex justify-between items-center mb-6"><h3 className="font-extrabold text-2xl text-slate-700">Class Goals</h3><Button size="sm" onClick={handleCreatePizzaParty}>+ New Pizza Party</Button></div><div className="space-y-4">{activeGoals.map(goal => (<div key={goal.id} className={`p-6 rounded-2xl border-2 flex items-center justify-between ${goal.status === 'PAUSED' ? 'bg-slate-50 border-slate-200 opacity-75' : 'bg-orange-50 border-orange-100'}`}><div className="flex items-center gap-4"><div className="text-4xl">{goal.status === 'PAUSED' ? '⏸️' : '🍕'}</div><div><h4 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">{goal.title}{goal.status === 'PAUSED' && <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded font-black uppercase">Paused</span>}</h4><div className="text-sm font-bold text-orange-600">{goal.current} / {goal.target} Points</div></div></div><div className="flex items-center gap-4">{goal.status === 'COMPLETED' ? <span className="px-4 py-2 bg-emerald-200 text-emerald-800 rounded-lg font-bold">Completed!</span> : <div className="w-32 h-3 bg-orange-200 rounded-full overflow-hidden"><div className="h-full bg-orange-500" style={{width: `${(goal.current/goal.target)*100}%`}}></div></div>}<button onClick={() => handleToggleGoal(goal.id, goal.status)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300" title={goal.status === 'ACTIVE' ? "Pause Goal" : "Resume Goal"}>{goal.status === 'ACTIVE' ? '⏸️' : '▶️'}</button><button onClick={() => handleDeleteGoal(goal.id)} className="text-slate-400 hover:text-rose-500 text-sm font-bold">✕</button></div></div>))}{activeGoals.length === 0 && <div className="text-center py-8 text-slate-400 font-bold">No active class goals.</div>}</div></div>
+          </div>
+      )}
+
+      {/* LOGS TAB */}
+      {activeTab === 'logs' && (
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+              <SectionHeader title="Activity Logs" />
+              <div className="max-h-[600px] overflow-y-auto">
+                  <table className="w-full text-left">
+                      <thead className="sticky top-0 bg-white">
+                          <tr className="border-b-2 border-slate-100">
+                              <th className="pb-4 pl-4 font-extrabold text-slate-400 uppercase text-xs">Time</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Student</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Action</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Device</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                          {loginLogs.map((log, i) => (
+                              <tr key={i} className="hover:bg-slate-50">
+                                  <td className="py-3 pl-4 text-xs font-bold text-slate-400">{new Date(log.timestamp).toLocaleString()}</td>
+                                  <td className="py-3 font-bold text-slate-700">{log.name}</td>
+                                  <td className="py-3 text-sm text-slate-600">{log.action}</td>
+                                  <td className="py-3 text-xs font-mono text-slate-400">{log.device}</td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      )}
+
+      {/* Collection Modal */}
+      {viewingStudent && <CollectionModal student={viewingStudent} onClose={() => setViewingStudent(null)} />}
     </div>
   );
 };

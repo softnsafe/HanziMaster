@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Student, PracticeRecord, AppView, ScriptType, Lesson, PracticeMode } from './types';
+import { Student, PracticeRecord, AppView, ScriptType, Lesson, PracticeMode, RewardRule } from './types';
 import { Button } from './components/Button';
 import { Dashboard } from './components/Dashboard';
 import { ProgressReport } from './components/ProgressReport';
@@ -48,6 +48,9 @@ const App: React.FC = () => {
   const [isConfigured, setIsConfigured] = useState(!!sheetService.getUrl() || sheetService.isDemoMode());
   const [isDemo, setIsDemo] = useState(sheetService.isDemoMode());
 
+  // Config State
+  const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
+
   // Check configuration on load
   useEffect(() => {
     // 1. Check for 'backend' query parameter for auto-configuration
@@ -76,7 +79,18 @@ const App: React.FC = () => {
     if (cachedBg) {
         setBgImage(cachedBg);
     }
-  }, []);
+
+    // 3. Load rules
+    const loadRules = async () => {
+        try {
+            const rules = await sheetService.getRewardRules();
+            setRewardRules(rules);
+        } catch(e) { console.error("Rules load fail", e); }
+    };
+    if (isConfigured || isDemo) {
+        loadRules();
+    }
+  }, [isConfigured, isDemo]);
 
   // --- Helpers ---
   
@@ -108,10 +122,29 @@ const App: React.FC = () => {
   const completeAssignment = async (lessonId: string) => {
       if (!student) return;
       
+      // Determine points based on rules
+      const completeRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_COMPLETE');
+      const retryRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_RETRY');
+
+      let pointsToAward = completeRule ? completeRule.points : 10;
+      let reason = "Completed Assignment";
+
+      try {
+          const statuses = await sheetService.getAssignmentStatuses(student.id);
+          const currentStatus = statuses.find(s => s.assignmentId === lessonId)?.status;
+          
+          if (currentStatus === 'COMPLETED') {
+              pointsToAward = retryRule ? retryRule.points : 5;
+              reason = "Practice Review";
+          }
+      } catch (e) {
+          console.warn("Status check failed, defaulting to full points", e);
+      }
+
       await performSave(async () => {
           await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED');
           // Award points for completion!
-          const result = await sheetService.updatePoints(student.id, 5, "Completed Assignment");
+          const result = await sheetService.updatePoints(student.id, pointsToAward, reason);
           if (result.success && result.points) {
               setStudent(prev => prev ? { ...prev, points: result.points! } : null);
           }
@@ -144,6 +177,8 @@ const App: React.FC = () => {
                  setStudent(result.student);
              }
         }
+        // Refresh rules
+        setRewardRules(await sheetService.getRewardRules(true));
       } catch (e) {
         console.error("Failed to refresh user data", e);
       }
@@ -204,6 +239,9 @@ const App: React.FC = () => {
                 // Force refresh history on login
                 const history = await sheetService.getStudentHistory(result.student.name, true);
                 setPracticeRecords(history);
+                // Force fetch rules
+                const rules = await sheetService.getRewardRules(true);
+                setRewardRules(rules);
                 setCurrentView(AppView.DASHBOARD);
             }
          }
@@ -305,8 +343,13 @@ const App: React.FC = () => {
         await performSave(async () => {
             await sheetService.savePracticeRecord(student.name, newRecord);
             // Also update assignment status to IN_PROGRESS if not already started
+            // SAFETY CHECK: Do NOT overwrite if we are on the very last character
+            // (because the completion logic will fire immediately after this)
             if (currentLesson) {
-               await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
+               const isLastCharacter = queueIndex === practiceQueue.length - 1;
+               if (!isLastCharacter) {
+                   await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
+               }
             }
         });
     }
@@ -392,7 +435,8 @@ const App: React.FC = () => {
                 佛光中文學校
             </h1>
             <p className="text-slate-500 font-bold text-sm tracking-widest uppercase">Homework Portal</p>
-            <p className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent font-extrabold text-sm mt-1 animate-[pulse_3s_infinite] drop-shadow-sm">Ms Huang's Class</p>
+            {/* Font size adjusted to text-sm to match Homework Portal */}
+            <p className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent font-extrabold text-sm mt-1 drop-shadow-sm">Ms Huang's Class</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">
@@ -430,7 +474,7 @@ const App: React.FC = () => {
                     >
                         {showPassword ? (
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
                         </svg>
                         ) : (
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
@@ -507,7 +551,7 @@ const App: React.FC = () => {
            <div className="bg-white p-10 rounded-[2rem] shadow-xl text-center max-w-lg border border-indigo-50">
              <div className="text-6xl mb-6 animate-bounce">🎉</div>
              <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Lesson Complete!</h2>
-             <p className="text-slate-500 font-bold mb-8">You've practiced all characters. +5 Points!</p>
+             <p className="text-slate-500 font-bold mb-8">You've practiced all characters.</p>
              <Button onClick={() => setCurrentView(AppView.DASHBOARD)} className="w-full py-3 text-lg">
                 Return to Dashboard
              </Button>
@@ -661,6 +705,7 @@ const App: React.FC = () => {
                     onViewReport={() => setCurrentView(AppView.REPORT)}
                     onLogout={handleLogout}
                     onRefreshData={refreshUserData}
+                    rewardRules={rewardRules} // Passing rules
                 />
              </div>
           </div>

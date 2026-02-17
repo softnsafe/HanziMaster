@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import HanziWriter from 'hanzi-writer';
 import { Button } from './Button';
+import { playPronunciation } from '../services/geminiService';
 
 interface HanziPlayerProps {
   character: string;
@@ -18,6 +19,7 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
   const writerRef = useRef<HanziWriter | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mode, setMode] = useState<'view' | 'quiz'>(initialMode);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || !character) return;
@@ -72,6 +74,13 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
     });
   };
 
+  const handleListen = async () => {
+      if (isPlayingAudio) return;
+      setIsPlayingAudio(true);
+      await playPronunciation(character);
+      setIsPlayingAudio(false);
+  };
+
   return (
     <div className="flex flex-col items-center gap-6 w-full">
       <div 
@@ -96,7 +105,16 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
          <div ref={containerRef} className="relative z-10 cursor-crosshair" />
       </div>
 
-      <div className="flex gap-4 w-full max-w-[280px] justify-center">
+      <div className="flex gap-2 w-full max-w-[300px] justify-center">
+        <Button 
+            variant="outline" 
+            onClick={handleListen} 
+            className="px-4 py-2"
+            disabled={isLoading || isPlayingAudio}
+            title="Listen"
+        >
+           {isPlayingAudio ? <span className="animate-pulse">🔊</span> : '🔊'}
+        </Button>
         <Button 
             variant={mode === 'view' ? 'secondary' : 'outline'} 
             onClick={animate} 

@@ -4,6 +4,7 @@ import { PracticeRecord, Student, Lesson, StudentAssignment, PracticeMode } from
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { convertCharacter } from '../utils/characterConverter';
+import { parseLocalDate } from '../utils/dateUtils';
 
 interface ProgressReportProps {
   student: Student;
@@ -134,6 +135,22 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
     );
   }
 
+  // Filter and Sort: Hide expired, Newest Start Date First
+  const sortedAssignments = assignments
+    .filter(lesson => {
+        if (!lesson.endDate) return true;
+        const end = parseLocalDate(lesson.endDate);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        // Hide if strictly past end date
+        return end >= today;
+    })
+    .sort((a, b) => {
+      const dateA = a.startDate ? parseLocalDate(a.startDate).getTime() : 0;
+      const dateB = b.startDate ? parseLocalDate(b.startDate).getTime() : 0;
+      return dateB - dateA;
+  });
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -170,45 +187,53 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
              <h3 className="font-extrabold text-xl text-slate-800">Homework History</h3>
         </div>
         <div className="divide-y divide-slate-100">
-            {assignments.map(lesson => {
-                const status = getStatus(lesson.id);
-                const { done, total, type } = getLessonProgress(lesson);
-                
-                return (
-                    <div key={lesson.id} className="p-6 hover:bg-slate-50 transition-colors">
-                        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-3">
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2">
-                                    <div className="font-bold text-slate-800 text-lg">{lesson.title}</div>
-                                    {renderBadge(type)}
+            {sortedAssignments.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 font-bold">
+                    No active assignments found.
+                </div>
+            ) : (
+                sortedAssignments.map(lesson => {
+                    const status = getStatus(lesson.id);
+                    const { done, total, type } = getLessonProgress(lesson);
+                    
+                    return (
+                        <div key={lesson.id} className="p-6 hover:bg-slate-50 transition-colors">
+                            <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-3">
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <div className="font-bold text-slate-800 text-lg">{lesson.title}</div>
+                                        {renderBadge(type)}
+                                    </div>
+                                    <div className="text-slate-400 text-sm font-medium">
+                                        {lesson.startDate ? parseLocalDate(lesson.startDate).toLocaleDateString() : ''} • {lesson.characters.length} items
+                                    </div>
                                 </div>
-                                <div className="text-slate-400 text-sm font-medium">{lesson.characters.length} items</div>
+                                <div>
+                                    {status === 'COMPLETED' ? (
+                                        <span className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full font-bold text-sm">Completed</span>
+                                    ) : (
+                                        <span className="px-4 py-2 bg-slate-100 text-slate-500 rounded-full font-bold text-sm">To Do</span>
+                                    )}
+                                </div>
                             </div>
-                            <div>
-                                {status === 'COMPLETED' ? (
-                                    <span className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full font-bold text-sm">Completed</span>
-                                ) : (
-                                     <span className="px-4 py-2 bg-slate-100 text-slate-500 rounded-full font-bold text-sm">To Do</span>
-                                )}
+                            
+                            {/* Single Progress Bar based on Type */}
+                            <div className="mt-2">
+                                <div className={`flex justify-between text-xs font-bold ${getBarLabelColor(type)} mb-1 uppercase tracking-wider`}>
+                                    <span>Progress</span>
+                                    <span>{done}/{total}</span>
+                                </div>
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full transition-all ${getBarColor(type)}`} 
+                                        style={{ width: `${(done / Math.max(total, 1)) * 100}%` }}
+                                    />
+                                </div>
                             </div>
                         </div>
-                        
-                        {/* Single Progress Bar based on Type */}
-                        <div className="mt-2">
-                            <div className={`flex justify-between text-xs font-bold ${getBarLabelColor(type)} mb-1 uppercase tracking-wider`}>
-                                <span>Progress</span>
-                                <span>{done}/{total}</span>
-                            </div>
-                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                <div 
-                                    className={`h-full rounded-full transition-all ${getBarColor(type)}`} 
-                                    style={{ width: `${(done / Math.max(total, 1)) * 100}%` }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                );
-            })}
+                    );
+                })
+            )}
         </div>
       </div>
     </div>

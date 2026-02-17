@@ -1,5 +1,4 @@
 
-
 export type ScriptType = 'Simplified' | 'Traditional';
 
 export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
@@ -37,6 +36,37 @@ export interface StoreItem {
   active: boolean;
 }
 
+export interface ClassGoal {
+  id: string;
+  title: string;
+  target: number;
+  current: number;
+  status: 'ACTIVE' | 'COMPLETED' | 'PAUSED';
+  type: 'PIZZA' | 'PARTY' | 'GENERIC';
+}
+
+export interface PointLogEntry {
+  timestamp: string;
+  delta: number;
+  reason: string;
+  balance: number;
+}
+
+export interface ContributionLog {
+  id: string;
+  studentName: string;
+  amount: number;
+  timestamp: string;
+  goalTitle: string;
+}
+
+export interface RewardRule {
+  id: string;
+  actionKey: string;
+  description: string;
+  points: number;
+}
+
 export interface Student {
   id: string;
   name: string;
@@ -71,7 +101,7 @@ export interface Sticker {
   emoji?: string;
   imageUrl?: string;
   cost: number;
-  category: 'ANIMAL' | 'FOOD' | 'CELESTIAL' | 'OBJECT' | 'CUSTOM' | 'STORE';
+  category: string;
   description: string;
 }
 
@@ -94,6 +124,9 @@ export interface Lesson {
   endDate?: string;
   type: PracticeMode;
   assignedTo?: string[]; // Array of student IDs. If empty/undefined, assigned to all.
+  metadata?: {
+    customAudio?: Record<string, string>; // Map character -> audio URL
+  };
 }
 
 export interface Flashcard {

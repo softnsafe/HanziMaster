@@ -2,14 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { CalendarEvent } from '../types';
 import { sheetService } from '../services/sheetService';
+import { parseLocalDate, isSameDay } from '../utils/dateUtils';
 
 interface CalendarViewProps {
   isTeacher?: boolean;
   onEventClick?: (event: CalendarEvent) => void;
+  onDateSelect?: (date: Date) => void;
   refreshTrigger?: number; // Prop to trigger reload
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher, onEventClick, refreshTrigger = 0 }) => {
+export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher, onEventClick, onDateSelect, refreshTrigger = 0 }) => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -43,12 +45,26 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   const getEventsForDate = (day: number) => {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return events.filter(e => e.date === dateStr);
+    // This creates a date in Local Time for the cell
+    const cellDate = new Date(year, month, day);
+    
+    return events.filter(e => {
+        if (!e.date) return false;
+        // Use robust parser to ensure "2025-02-14" means local Feb 14
+        const eventDate = parseLocalDate(e.date);
+        return isSameDay(eventDate, cellDate);
+    });
+  };
+
+  // Helper to normalize backend types like "No School" -> "NO_SCHOOL"
+  const normalizeType = (type: string) => {
+      if (!type) return 'SCHOOL_DAY';
+      return type.toUpperCase().replace(/\s+/g, '_');
   };
 
   const getEventIcon = (type: string) => {
-     switch(type) {
+     const t = normalizeType(type);
+     switch(t) {
          case 'SCHOOL_DAY': return '🏫';
          case 'SPECIAL_EVENT': return '🎈';
          case 'NO_SCHOOL': 
@@ -58,7 +74,8 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
   };
 
   const getEventStyle = (type: string) => {
-     switch(type) {
+     const t = normalizeType(type);
+     switch(t) {
          case 'SCHOOL_DAY': return 'bg-emerald-300 text-emerald-900 border-b-4 border-emerald-500 hover:bg-emerald-400';
          case 'SPECIAL_EVENT': return 'bg-amber-300 text-amber-900 border-b-4 border-amber-500 hover:bg-amber-400';
          case 'NO_SCHOOL': 
@@ -70,8 +87,15 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
   };
 
   const upcomingEvents = events
-    .filter(e => new Date(e.date) >= new Date(new Date().setHours(0,0,0,0)))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .filter(e => {
+        const d = parseLocalDate(e.date);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        return d >= today;
+    })
+    .sort((a, b) => {
+        return parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime();
+    })
     .slice(0, 5);
 
   return (
@@ -112,6 +136,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                         return (
                         <div 
                             key={day} 
+                            onClick={() => isTeacher && onDateSelect && onDateSelect(new Date(year, month, day))}
                             className={`
                                 aspect-square rounded-3xl p-1 relative transition-all duration-300 
                                 flex flex-col items-center
@@ -119,9 +144,10 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                     ? 'bg-sky-400 border-4 border-sky-200 shadow-[0_4px_0_#0ea5e9] transform -translate-y-1 z-10' 
                                     : 'bg-white border-2 border-amber-100 hover:border-amber-300 hover:bg-amber-50'
                                 }
+                                ${isTeacher ? 'cursor-pointer hover:shadow-md' : ''}
                             `}
                         >
-                            <span className="block text-center text-lg sm:text-xl font-black leading-none mt-1 mb-1 ${isToday ? 'text-white drop-shadow-md' : 'text-slate-400'}">
+                            <span className={`block text-center text-lg sm:text-xl font-black leading-none mt-1 mb-1 ${isToday ? 'text-white drop-shadow-md' : 'text-slate-400'}`}>
                                 {day}
                             </span>
                             
@@ -152,7 +178,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
             )}
         </div>
 
-        {/* Legend / Key - UPDATED WITH TOYS & FUN ICONS */}
+        {/* Legend / Key */}
         <div className="flex flex-wrap justify-center gap-4 sm:gap-6 pt-2">
             <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl shadow-[0_4px_0_#cbd5e1] border-2 border-slate-100 transform hover:-translate-y-1 transition-transform">
                 <span className="text-xl">🏫</span>
@@ -178,10 +204,10 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                         <div key={e.id} onClick={() => onEventClick?.(e)} className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50 hover:bg-indigo-50 transition-colors cursor-pointer border-2 border-transparent hover:border-indigo-100 group">
                              <div className={`
                                  flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-xs font-black leading-tight shadow-[0_4px_0_rgba(0,0,0,0.1)] border-b-4
-                                 ${e.type === 'SCHOOL_DAY' ? 'bg-emerald-300 text-emerald-900 border-emerald-500' : e.type === 'SPECIAL_EVENT' ? 'bg-amber-300 text-amber-900 border-amber-500' : 'bg-gradient-to-br from-pink-300 to-indigo-300 text-purple-900 border-purple-500'}
+                                 ${normalizeType(e.type) === 'SCHOOL_DAY' ? 'bg-emerald-300 text-emerald-900 border-emerald-500' : normalizeType(e.type) === 'SPECIAL_EVENT' ? 'bg-amber-300 text-amber-900 border-amber-500' : 'bg-gradient-to-br from-pink-300 to-indigo-300 text-purple-900 border-purple-500'}
                              `}>
-                                 <span className="uppercase text-[10px]">{new Date(e.date).toLocaleString('default', { month: 'short' })}</span>
-                                 <span className="text-xl">{new Date(e.date).getDate()}</span>
+                                 <span className="uppercase text-[10px]">{parseLocalDate(e.date).toLocaleString('default', { month: 'short' })}</span>
+                                 <span className="text-xl">{parseLocalDate(e.date).getDate()}</span>
                              </div>
                              <div>
                                  <h4 className="font-bold text-slate-700 text-lg group-hover:text-indigo-600 transition-colors flex items-center gap-2">
@@ -189,7 +215,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                     {e.title}
                                  </h4>
                                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                                     {e.type === 'NO_SCHOOL' ? 'Play Time 🧸' : e.type === 'SCHOOL_DAY' ? 'School Day 🏫' : 'Fun Event 🎈'}
+                                     {normalizeType(e.type) === 'NO_SCHOOL' ? 'Play Time 🧸' : normalizeType(e.type) === 'SCHOOL_DAY' ? 'School Day 🏫' : 'Fun Event 🎈'}
                                  </p>
                              </div>
                         </div>

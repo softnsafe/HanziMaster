@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
@@ -12,10 +11,10 @@ export const SupportWidget: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || !name.trim() || !email.trim()) return;
 
     setStatus('submitting');
-    const result = await sheetService.submitFeedback(name || 'Anonymous', email, message);
+    const result = await sheetService.submitFeedback(name, email, message);
     
     if (result.success) {
         setStatus('success');
@@ -48,8 +47,9 @@ export const SupportWidget: React.FC = () => {
            ) : (
                <form onSubmit={handleSubmit} className="p-4 space-y-4">
                    <div>
-                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Name (Optional)</label>
+                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Name <span className="text-rose-500">*</span></label>
                        <input 
+                         required
                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-100 outline-none"
                          value={name}
                          onChange={e => setName(e.target.value)}
@@ -57,8 +57,9 @@ export const SupportWidget: React.FC = () => {
                        />
                    </div>
                    <div>
-                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email (Optional)</label>
+                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Email <span className="text-rose-500">*</span></label>
                        <input 
+                         required
                          type="email"
                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-100 outline-none"
                          value={email}
@@ -67,7 +68,7 @@ export const SupportWidget: React.FC = () => {
                        />
                    </div>
                    <div>
-                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">How can we help?</label>
+                       <label className="block text-xs font-bold text-slate-400 uppercase mb-1">How can we help? <span className="text-rose-500">*</span></label>
                        <textarea 
                          required
                          rows={3}

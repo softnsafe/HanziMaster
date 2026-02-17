@@ -1,4 +1,5 @@
 
+export const APPS_SCRIPT_TEMPLATE = `
 // -----------------------------------------------------
 // HANZI MASTER BACKEND SCRIPT (v3.25.3)
 // Copy ALL of this code into your Google Apps Script
@@ -134,12 +135,6 @@ function setup() {
     dictSheet = ss.insertSheet('Dictionary');
     dictSheet.appendRow(['Character', 'Pinyin', 'Definition', 'AudioURL']);
     dictSheet.setFrozenRows(1);
-  } else {
-    // Migration for AudioURL
-    var headers = dictSheet.getRange(1, 1, 1, dictSheet.getLastColumn()).getValues()[0];
-    if (findColumnIndex(headers, ['audiourl', 'audio']) === -1) { 
-        dictSheet.getRange(1, dictSheet.getLastColumn() + 1).setValue('AudioURL'); 
-    }
   }
   
   const props = PropertiesService.getScriptProperties();
@@ -173,31 +168,17 @@ function saveMediaToDrive(dataUrl, filenamePrefix) {
     var folderId = props.getProperty('STICKER_FOLDER_ID');
     var folder;
     if (folderId) { try { folder = DriveApp.getFolderById(folderId); if (folder.isTrashed()) folder = null; } catch (e) { folder = null; } }
-    
-    // Create folder if missing
     if (!folder) {
       var folderName = "HanziMaster_Assets";
       var folders = DriveApp.getFoldersByName(folderName);
       while (folders.hasNext()) { var f = folders.next(); if (!f.isTrashed()) { folder = f; break; } }
-      if (!folder) { 
-          folder = DriveApp.createFolder(folderName); 
-          try { folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {} 
-      }
+      if (!folder) { folder = DriveApp.createFolder(folderName); try { folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {} }
       props.setProperty('STICKER_FOLDER_ID', folder.getId());
     }
-    
     var file = folder.createFile(blob);
-    
-    // CRITICAL: Attempt to make file public for students to hear/see
-    try {
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (e) {
-        // Fallback for domains that restrict "Anyone" sharing
-        try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); } catch(e2) {}
-    }
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
     
     if (contentType.includes('audio')) {
-        // Use a standard download link format that works better with HTML5 audio
         return "https://drive.google.com/uc?export=download&id=" + file.getId();
     }
     return "https://lh3.googleusercontent.com/d/" + file.getId();
@@ -989,3 +970,4 @@ function syncStudentData(payload) {
     }
     return response({ status: 'success', points: calculatedPoints });
 }
+`

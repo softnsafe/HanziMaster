@@ -1,21 +1,28 @@
-
 import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({ 
   children, 
   variant = 'primary', 
+  size = 'md',
   isLoading, 
   className = '', 
   disabled,
   ...props 
 }) => {
-  const baseStyles = "px-6 py-2.5 rounded-full font-bold transition-all duration-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-4 focus:ring-opacity-50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100";
+  const baseStyles = "rounded-full font-bold transition-all duration-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-4 focus:ring-opacity-50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100";
   
+  const sizeStyles = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-6 py-2.5 text-base",
+    lg: "px-8 py-3.5 text-lg"
+  };
+
   const variants = {
     primary: "bg-indigo-500 text-white hover:bg-indigo-600 focus:ring-indigo-300 shadow-lg shadow-indigo-200 border-b-4 border-indigo-700 hover:border-indigo-800 active:border-b-0 active:translate-y-1",
     secondary: "bg-sky-400 text-white hover:bg-sky-500 focus:ring-sky-300 shadow-lg shadow-sky-200 border-b-4 border-sky-600 hover:border-sky-700 active:border-b-0 active:translate-y-1",
@@ -26,7 +33,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button 
-      className={`${baseStyles} ${variants[variant]} ${className}`}
+      className={`${baseStyles} ${sizeStyles[size]} ${variants[variant]} ${className}`}
       disabled={isLoading || disabled}
       {...props}
     >

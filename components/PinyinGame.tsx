@@ -3,7 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { Flashcard, Lesson } from '../types';
 import { getFlashcardData, playPronunciation } from '../services/geminiService';
+import { sheetService } from '../services/sheetService';
 import { pinyinify } from '../utils/pinyinUtils';
+import { convertCharacter } from '../utils/characterConverter';
 
 interface PinyinGameProps {
   lesson: Lesson;
@@ -18,6 +20,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const [queue, setQueue] = useState<string[]>(initialCharacters && initialCharacters.length > 0 ? initialCharacters : lesson.characters);
   
   const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
+  const [dictionary, setDictionary] = useState<Record<string, string>>({}); // Kept mostly for UI indicators
+  
   const [currentIndex, setCurrentIndex] = useState(0);
   const [mistakes, setMistakes] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -34,6 +38,20 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const currentChar = queue[currentIndex];
   // Safe access for card
   const card = currentChar ? flashcards[currentChar] : undefined;
+
+  // Load Global Dictionary on Mount
+  useEffect(() => {
+      const loadDict = async () => {
+          try {
+              // Fetch dictionary from Sheet (force refresh true)
+              const dict = await sheetService.getDictionary(true);
+              setDictionary(dict);
+          } catch(e) {
+              console.warn("Dictionary load failed", e);
+          }
+      };
+      loadDict();
+  }, []);
 
   // Fetch card data when character changes
   useEffect(() => {
@@ -118,8 +136,26 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const handlePlaySound = async () => {
       if (isPlayingAudio || !currentChar) return;
       setIsPlayingAudio(true);
-      await playPronunciation(currentChar);
+      
+      // 1. Check Assignment Override
+      let audioUrl = lesson.metadata?.customAudio?.[currentChar];
+
+      // Pass found URL (or undefined) AND the flashcard pinyin to service
+      // The service will fallback to /audio/${card.pinyin}.mp3 if Dictionary/Override fails
+      await playPronunciation(currentChar, audioUrl, card?.pinyin);
+      
       setIsPlayingAudio(false);
+  };
+
+  // Helper to determine if we have a custom audio source
+  const hasCustomAudio = () => {
+      if (!currentChar) return false;
+      if (lesson.metadata?.customAudio?.[currentChar]) return true;
+      if (dictionary[currentChar]) return true;
+      // Check simp fallback
+      const simp = convertCharacter(currentChar, 'Simplified');
+      if (dictionary[simp]) return true;
+      return false;
   };
 
   if (isFinished) {
@@ -175,8 +211,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                         <button 
                             onClick={handlePlaySound}
                             disabled={isPlayingAudio}
-                            className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-500 hover:bg-indigo-100 flex items-center justify-center text-xl transition-all disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                            title="Listen"
+                            className={`w-10 h-10 rounded-full flex items-center justify-center text-xl transition-all disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${ hasCustomAudio() ? 'bg-amber-100 text-amber-600 hover:bg-amber-200' : 'bg-indigo-50 text-indigo-500 hover:bg-indigo-100'}`}
+                            title={hasCustomAudio() ? "Playing from Dictionary" : "Listen"}
                             type="button"
                         >
                             {isPlayingAudio ? (
@@ -241,7 +277,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                         <input 
                             ref={inputRef}
                             type="text" 
-                            /* Increased font size to text-4xl */
                             className={`flex-1 bg-white border-2 rounded-xl px-6 py-4 text-center font-bold text-4xl text-slate-700 outline-none focus:ring-4 placeholder-slate-200 transition-colors ${attempts > 0 ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-100' : 'border-indigo-100 focus:border-indigo-400 focus:ring-indigo-50'}`}
                             placeholder="Type here..."
                             value={inputValue}
