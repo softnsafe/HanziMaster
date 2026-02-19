@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.25.5)
+// HANZI MASTER BACKEND SCRIPT (v3.25.6)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.25.5'; 
+const VERSION = 'v3.25.6'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -221,6 +221,7 @@ function doPost(e) {
     
     if (action === 'login') return handleLogin(data.payload);
     else if (action === 'adminSetup') return handleForceSetup();
+    else if (action === 'addStudent') return addStudent(data.payload);
     else if (action === 'setClassStatus') return setClassStatus(data.payload);
     else if (action === 'saveRecord') return saveRecord(data.payload);
     else if (action === 'createAssignment') return createAssignment(data.payload);
@@ -257,6 +258,30 @@ function doPost(e) {
 function response(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
 
 // --- FEATURE FUNCTIONS ---
+
+function addStudent(payload) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('Students');
+    if (!sheet) { setup(); sheet = ss.getSheetByName('Students'); }
+    
+    const name = String(payload.name).trim();
+    if (!name) return response({ status: 'error', message: "Name required" });
+    
+    // Check duplicates
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][1]).toLowerCase() === name.toLowerCase()) {
+            return response({ status: 'error', message: "Student already exists" });
+        }
+    }
+    
+    const newId = 'student-' + Date.now();
+    const timestamp = new Date().toISOString();
+    // 'ID', 'Name', 'JoinedAt', 'LastLogin', 'Password', 'Script', 'Points', 'Stickers', 'Permissions'
+    sheet.appendRow([newId, name, timestamp, '', payload.password || '', 'Simplified', 0, '[]', false]);
+    
+    return response({ status: 'success', id: newId });
+}
 
 function toggleGoalStatus(payload) {
     const ss = getSpreadsheet();
@@ -799,17 +824,8 @@ function handleLogin(payload) {
       }
       return response({ status: 'success', student: { ...payload, id: existingId, name: correctName, scriptPreference: scriptPref, points: points, stickers: stickers, customStickers: customStickers, canCreateStickers: canCreate } });
   } else { 
-      // NEW USER REGISTRATION (Auto-create)
-      // Only do this if it's not the "Teacher" account (Ms. Huang is usually reserved, but here we treat everyone as student unless specifically handled in frontend)
-      const newId = 'student-' + Date.now();
-      // 'ID', 'Name', 'JoinedAt', 'LastLogin', 'Password', 'Script', 'Points', 'Stickers', 'Permissions'
-      sheet.appendRow([newId, inputName, timestamp, timestamp, inputPass, scriptPref, 0, '[]', false]);
-      
-      // Create welcome log
-      let logSheet = ss.getSheetByName('LoginLogs');
-      if (logSheet) logSheet.appendRow([new Date(), newId, inputName, 'Registered', 'New User']);
-
-      return response({ status: 'success', student: { ...payload, id: newId, name: inputName, points: 0, stickers: [], customStickers: [], canCreateStickers: false } });
+      // AUTO-CREATION DISABLED
+      return response({ status: 'error', message: "User not found. Ask teacher to create account." });
   }
 }
 

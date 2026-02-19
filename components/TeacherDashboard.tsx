@@ -143,6 +143,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [rewardPoints, setRewardPoints] = useState(5);
   const [rewardReason, setRewardReason] = useState("Good Job!");
   const [selectedSticker, setSelectedSticker] = useState<StoreItem | Sticker | null>(null);
+  const [previewSticker, setPreviewSticker] = useState<StoreItem | Sticker | null>(null);
   const [viewingStudent, setViewingStudent] = useState<StudentSummary | null>(null);
   const [activeGoals, setActiveGoals] = useState<ClassGoal[]>([]);
   const [recentContributions, setRecentContributions] = useState<ContributionLog[]>([]);
@@ -165,6 +166,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // Logs State
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
+
+  // Add Student State
+  const [newStudentName, setNewStudentName] = useState('');
+  const [isAddingStudent, setIsAddingStudent] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -258,6 +263,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setCurrentAssignedTo([]);
   };
 
+  const handleAddStudent = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newStudentName.trim()) return;
+      
+      setIsAddingStudent(true);
+      const result = await sheetService.addStudent(newStudentName.trim());
+      setIsAddingStudent(false);
+      
+      if (result.success) {
+          setLastSuccess("Student Added! They can now login.");
+          setNewStudentName('');
+          // Refresh list
+          const students = await sheetService.getAllStudentProgress(true);
+          setStudentData(students);
+          setTimeout(() => setLastSuccess(''), 3000);
+      } else {
+          setLastError(result.message || "Failed to add student.");
+          setTimeout(() => setLastError(''), 3000);
+      }
+  };
+
   const handleCreateOrUpdateHomework = async (e: React.FormEvent) => {
       e.preventDefault();
       setIsSubmitting(true);
@@ -277,7 +303,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           type,
           startDate,
           endDate,
-          assignedTo: editingId ? currentAssignedTo : [], // Preserve assignedTo if editing
+          assignedTo: editingId ? currentAssignedTo : [], // Preserve assignments when editing
           metadata: { 
               customAudio: customAudioMap,
               points: assignmentPoints
@@ -437,6 +463,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       
       await sheetService.adminGiveSticker(Array.from(selectedStudentIds), stickerPayload);
       setLastSuccess(`Sent ${selectedSticker.name} sticker!`);
+      setSelectedSticker(null); // Clear selection after sending
       await loadTabData();
       setIsSubmitting(false);
       setTimeout(() => setLastSuccess(''), 3000);
@@ -553,8 +580,56 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   // Derived categories for the datalist (always dynamically updated)
   const existingCategories = Array.from(new Set(storeItems.map(i => i.category || 'Misc.'))).sort();
 
+  // STICKER PREVIEW MODAL RENDERER
+  const renderStickerPreview = () => {
+    if (!previewSticker) return null;
+    const imageUrl = previewSticker.imageUrl;
+    const emoji = (previewSticker as any).emoji;
+
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setPreviewSticker(null)}>
+            <div className="bg-white rounded-[2rem] p-6 max-w-sm w-full shadow-2xl relative border-4 border-white animate-bounce-in" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setPreviewSticker(null)} className="absolute top-4 right-4 w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-200 font-bold">✕</button>
+                
+                <div className="text-center mt-2">
+                    <h3 className="text-2xl font-extrabold text-slate-800 mb-6">{previewSticker.name}</h3>
+                    
+                    <div className="aspect-square bg-slate-50 rounded-[2rem] border-4 border-slate-100 p-8 flex items-center justify-center mb-6 relative overflow-hidden">
+                         <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '16px 16px' }}></div>
+                         
+                         {imageUrl ? (
+                             <img src={convertDriveLink(imageUrl)} className="w-full h-full object-contain filter drop-shadow-lg" alt={previewSticker.name} />
+                         ) : (
+                             <div className="text-9xl drop-shadow-xl select-none">{emoji}</div>
+                         )}
+                    </div>
+
+                    {rewardMode === 'STICKER' && (
+                        <Button 
+                            className="w-full py-3 text-lg" 
+                            onClick={() => {
+                                setSelectedSticker(previewSticker);
+                                setPreviewSticker(null);
+                            }}
+                        >
+                            Select for Gift
+                        </Button>
+                    )}
+                    
+                    {rewardMode === 'STORE' && (
+                       <div className="text-sm font-bold text-slate-400 uppercase tracking-widest bg-slate-100 py-2 rounded-xl">Preview Mode</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+  }
+
   return (
     <div className="max-w-7xl mx-auto animate-fade-in space-y-8 pb-20 font-nunito bg-[#f8fafc] min-h-screen p-6">
+      {/* Sticker Modal */}
+      {renderStickerPreview()}
+
       {/* Top Nav */}
       <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6 sticky top-4 z-40">
         <div className="flex items-center gap-5">
@@ -648,19 +723,34 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       </div>
                   </div>
 
-                  {/* Points Input */}
+                  {/* Points Input - Enhanced */}
                   <div>
                       <InputLabel label="Points Reward" />
-                      <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border-2 border-slate-200 w-fit">
-                          <span className="text-xl">⭐</span>
-                          <input 
-                            type="number" 
-                            min="1" 
-                            max="1000"
-                            value={assignmentPoints} 
-                            onChange={e => setAssignmentPoints(Number(e.target.value))} 
-                            className="w-20 bg-transparent font-black text-lg outline-none text-amber-500" 
-                          />
+                      <div className="flex flex-wrap items-center gap-4">
+                          <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border-2 border-slate-200 w-fit">
+                              <span className="text-xl">⭐</span>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="1000"
+                                value={assignmentPoints} 
+                                onChange={e => setAssignmentPoints(Number(e.target.value))} 
+                                className="w-20 bg-transparent font-black text-lg outline-none text-amber-500" 
+                              />
+                          </div>
+                          {/* Quick Presets */}
+                          <div className="flex gap-2">
+                              {[5, 10, 20, 50].map(pt => (
+                                  <button
+                                    key={pt}
+                                    type="button"
+                                    onClick={() => setAssignmentPoints(pt)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${assignmentPoints === pt ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-white text-slate-400 border-slate-200 hover:border-amber-200'}`}
+                                  >
+                                      {pt} pts
+                                  </button>
+                              ))}
+                          </div>
                       </div>
                   </div>
 
@@ -721,7 +811,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   </div>
                   <div className="overflow-y-auto max-h-[600px] pr-2">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {Object.entries(dictionary).map(([char, data]) => (
+                          {Object.entries(dictionary).map(([char, data]: [string, { pinyin: string; definition: string; audio: string }]) => (
                               <div key={char} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center group hover:border-indigo-200 transition-all">
                                   <div><div className="text-2xl font-bold text-slate-800">{char}</div><div className="text-xs font-bold text-slate-400">{data.pinyin} • {data.definition}</div></div>
                                   <div className="flex items-center gap-2">
@@ -813,7 +903,24 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       {/* PROGRESS TAB */}
       {activeTab === 'progress' && (
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
-              <SectionHeader title="Student Progress" />
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                  <SectionHeader title="Student Progress" />
+                  
+                  {/* Add Student Form */}
+                  <form onSubmit={handleAddStudent} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+                      <input 
+                          type="text" 
+                          value={newStudentName} 
+                          onChange={e => setNewStudentName(e.target.value)} 
+                          placeholder="New Student Name" 
+                          className="px-3 py-2 bg-white rounded-lg text-sm font-bold border border-slate-200 outline-none focus:border-indigo-400 w-48"
+                      />
+                      <Button type="submit" size="sm" isLoading={isAddingStudent} disabled={!newStudentName.trim()}>
+                          + Add
+                      </Button>
+                  </form>
+              </div>
+
               <div className="overflow-x-auto">
                   <table className="w-full text-left">
                       <thead>
@@ -858,19 +965,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   {/* POINTS MODE */}
                   {rewardMode === 'POINTS' && (<div><div className="flex gap-4 mb-6 items-center bg-slate-50 p-4 rounded-2xl border border-slate-200"><div className="flex items-center gap-2"><span className="font-bold text-slate-500 text-sm">Amount:</span><input type="number" value={rewardPoints} onChange={e => setRewardPoints(Number(e.target.value))} className="w-20 px-3 py-2 rounded-lg border-2 border-slate-200 font-bold outline-none" /></div><div className="flex-1"><input value={rewardReason} onChange={e => setRewardReason(e.target.value)} placeholder="Reason (e.g. Good Participation)" className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 font-medium outline-none" /></div><Button onClick={handleGivePoints} disabled={selectedStudentIds.size === 0}>Give to {selectedStudentIds.size || '0'} Students</Button></div><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-indigo-200'}`}><div className="flex justify-between items-start mb-2"><div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-xs">✓</span>}</div><span className="font-black text-amber-500 text-xs">⭐ {s.points}</span></div><p className="font-bold text-slate-700 truncate">{s.name}</p></div>))}</div>{studentData.length === 0 && <div className="text-center py-10 text-slate-400">No students found.</div>}<div className="mt-4"><Button variant="ghost" size="sm" onClick={toggleSelectAll}>Select All</Button></div></div>)}
                   
-                  {/* STICKER GIFT MODE */}
-                  {rewardMode === 'STICKER' && (<div><div className="mb-6"><h4 className="font-extrabold text-slate-600 mb-3">1. Select Students ({selectedStudentIds.size})</h4><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-[150px] overflow-y-auto pr-2">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-2 rounded-xl border cursor-pointer text-xs font-bold transition-all flex items-center gap-2 ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 text-indigo-700' : 'bg-white border-slate-100 text-slate-500'}`}><div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-[10px]">✓</span>}</div><span className="truncate">{s.name}</span></div>))}</div>{studentData.length === 0 && <div className="text-center py-4 text-slate-400 text-xs">No students found.</div>}<Button variant="ghost" size="sm" onClick={toggleSelectAll} className="mt-2 text-xs h-8">Select All</Button></div><div className="border-t border-slate-100 pt-6"><div className="flex justify-between items-center mb-4"><h4 className="font-extrabold text-slate-600">2. Select Sticker</h4><Button onClick={handleGiveSticker} disabled={selectedStudentIds.size === 0 || !selectedSticker}>Send Sticker</Button></div><div className="max-h-[400px] overflow-y-auto pr-2">{(() => { const allItems = [...storeItems, ...STICKER_CATALOG]; const grouped: Record<string, typeof allItems> = {}; allItems.forEach(item => { const cat = item.category || 'Misc.'; if (!grouped[cat]) grouped[cat] = []; if (!grouped[cat].find(i => i.id === item.id)) { grouped[cat].push(item); } }); return Object.entries(grouped).sort().map(([category, items]) => (<div key={category} className="mb-6"><h5 className="font-black text-slate-400 text-xs uppercase mb-3 sticky top-0 bg-white z-10 py-2 border-b border-slate-100">{category}</h5><div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">{items.map((item, idx) => (<div key={`${item.id}-${idx}`} onClick={() => setSelectedSticker(item)} className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-2 cursor-pointer transition-all ${selectedSticker?.id === item.id ? 'bg-emerald-50 border-emerald-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-slate-300'}`} title={item.name}>{item.imageUrl ? <img src={convertDriveLink(item.imageUrl)} alt={item.name} className="w-full h-full object-contain" /> : <div className="text-4xl select-none">{(item as any).emoji}</div>}</div>))}</div></div>)); })()}</div></div></div>)}
-                  
-                  {/* STORE MANAGEMENT MODE */}
-                  {rewardMode === 'STORE' && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* STICKER GIFT MODE - Updated to open preview */}
+                  {rewardMode === 'STICKER' && (<div><div className="mb-6"><h4 className="font-extrabold text-slate-600 mb-3">1. Select Students ({selectedStudentIds.size})</h4><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-[150px] overflow-y-auto pr-2">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-2 rounded-xl border cursor-pointer text-xs font-bold transition-all flex items-center gap-2 ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 text-indigo-700' : 'bg-white border-slate-100 text-slate-500'}`}><div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-[10px]">✓</span>}</div><span className="truncate">{s.name}</span></div>))}</div>{studentData.length === 0 && <div className="text-center py-4 text-slate-400 text-xs">No students found.</div>}<Button variant="ghost" size="sm" onClick={toggleSelectAll} className="mt-2 text-xs h-8">Select All</Button></div><div className="border-t border-slate-100 pt-6"><div className="flex justify-between items-center mb-4"><h4 className="font-extrabold text-slate-600">2. Select Sticker</h4><Button onClick={handleGiveSticker} disabled={selectedStudentIds.size === 0 || !selectedSticker}>Send {selectedSticker ? selectedSticker.name : 'Sticker'}</Button></div>
+                  {/* Selected Preview Box */}
+                  {selectedSticker && (
+                      <div className="mb-6 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl flex items-center gap-4 animate-bounce-in">
+                          <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center border-2 border-emerald-100">
+                              {selectedSticker.imageUrl ? <img src={convertDriveLink(selectedSticker.imageUrl)} className="w-full h-full object-contain p-1" /> : <span className="text-3xl">{(selectedSticker as any).emoji}</span>}
+                          </div>
                           <div>
+                              <div className="font-bold text-emerald-800 text-sm">Ready to Send</div>
+                              <div className="font-black text-emerald-600 text-lg">{selectedSticker.name}</div>
+                          </div>
+                      </div>
+                  )}
+                  <div className="max-h-[400px] overflow-y-auto pr-2">{(() => { const allItems = [...storeItems, ...STICKER_CATALOG]; const grouped: Record<string, typeof allItems> = {}; allItems.forEach(item => { const cat = item.category || 'Misc.'; if (!grouped[cat]) grouped[cat] = []; if (!grouped[cat].find(i => i.id === item.id)) { grouped[cat].push(item); } }); return Object.entries(grouped).sort().map(([category, items]) => (<div key={category} className="mb-6"><h5 className="font-black text-slate-400 text-xs uppercase mb-3 sticky top-0 bg-white z-10 py-2 border-b border-slate-100">{category}</h5><div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">{items.map((item, idx) => (<div key={`${item.id}-${idx}`} onClick={() => setPreviewSticker(item)} className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center p-2 cursor-pointer transition-all ${selectedSticker?.id === item.id ? 'bg-emerald-50 border-emerald-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-slate-300'}`} title={item.name}>{item.imageUrl ? <img src={convertDriveLink(item.imageUrl)} alt={item.name} className="w-full h-full object-contain" /> : <div className="text-4xl select-none">{(item as any).emoji}</div>}</div>))}</div></div>)); })()}</div></div></div>)}
+                  
+                  {/* STORE MANAGEMENT MODE - Redesigned to Grid */}
+                  {rewardMode === 'STORE' && (
+                      <div className="space-y-8 animate-fade-in">
+                          <div className="bg-slate-50 p-6 rounded-3xl border-2 border-slate-200">
                               <h4 className="font-extrabold text-slate-600 mb-4">Add Store Item</h4>
                               <form onSubmit={handleAddStoreItem} className="space-y-4">
-                                  <input value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Item Name" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" required />
-                                  <input value={newStoreUrl} onChange={e => setNewStoreUrl(e.target.value)} placeholder="Image URL (Google Drive Link)" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium outline-none" required />
+                                  <input value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Item Name" className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-bold outline-none" required />
+                                  <input value={newStoreUrl} onChange={e => setNewStoreUrl(e.target.value)} placeholder="Image URL (Google Drive Link)" className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-medium outline-none" required />
                                   <div className="flex gap-4">
-                                      <input type="number" value={newStoreCost} onChange={e => setNewStoreCost(Number(e.target.value))} placeholder="Cost" className="w-24 px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" required />
+                                      <input type="number" value={newStoreCost} onChange={e => setNewStoreCost(Number(e.target.value))} placeholder="Cost" className="w-24 px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-bold outline-none" required />
                                       {/* Updated Category Input with Suggestions from existing Store Items */}
                                       <div className="flex-1 relative">
                                           <input 
@@ -878,7 +998,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                                             value={newStoreCategory} 
                                             onChange={e => setNewStoreCategory(e.target.value)} 
                                             placeholder="Category"
-                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none" 
+                                            className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-bold outline-none" 
                                           />
                                           <datalist id="category-suggestions">
                                               {/* Populate suggestions dynamically from what is actually in the store */}
@@ -895,26 +1015,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                               </form>
                           </div>
                           <div>
-                              <h4 className="font-extrabold text-slate-600 mb-4">Current Items</h4>
-                              <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
-                                  {storeItems.map(item => (
-                                      <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                          <div className="flex items-center gap-3">
-                                              <div className="w-10 h-10 rounded-lg bg-white p-1 border border-slate-200 flex items-center justify-center">
-                                                  {item.imageUrl ? <img src={convertDriveLink(item.imageUrl)} className="w-full h-full object-contain" /> : <span className="text-xl">{(item as any).emoji || '📦'}</span>}
+                              <h4 className="font-extrabold text-slate-600 mb-4">Store Inventory ({storeItems.length})</h4>
+                              <div className="max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                      {storeItems.map(item => (
+                                          <div key={item.id} className="bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm hover:border-indigo-200 transition-all relative group cursor-pointer" onClick={() => setPreviewSticker(item)}>
+                                              <div className="aspect-square w-full bg-slate-50 rounded-xl mb-3 flex items-center justify-center relative overflow-hidden">
+                                                  {item.imageUrl ? (
+                                                      <img src={convertDriveLink(item.imageUrl)} className="w-full h-full object-contain p-2" />
+                                                  ) : (
+                                                      <div className="text-5xl">{(item as any).emoji || '📦'}</div>
+                                                  )}
                                               </div>
-                                              <div>
-                                                  <div className="font-bold text-slate-700 text-sm">{item.name}</div>
-                                                  <div className="text-xs text-slate-400 font-bold flex items-center gap-2">
-                                                      <span>⭐ {item.cost}</span>
-                                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider text-slate-500">{item.category || 'Misc.'}</span>
+                                              <div className="text-center w-full mb-2">
+                                                  <div className="font-bold text-slate-700 truncate">{item.name}</div>
+                                                  <div className="flex justify-center items-center gap-2 mt-1">
+                                                      <span className="text-xs font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded-md">⭐ {item.cost}</span>
+                                                      <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase">{item.category || 'Misc.'}</span>
                                                   </div>
                                               </div>
+                                              <button 
+                                                  onClick={(e) => { e.stopPropagation(); handleDeleteStoreItem(item.id); }}
+                                                  className="w-full py-2 rounded-lg bg-red-50 text-red-500 text-xs font-bold hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100"
+                                              >
+                                                  Delete
+                                              </button>
                                           </div>
-                                          <button onClick={() => handleDeleteStoreItem(item.id)} className="text-rose-400 hover:text-rose-600 font-bold text-xs">Delete</button>
-                                      </div>
-                                  ))}
+                                      ))}
+                                  </div>
                               </div>
+                              {storeItems.length === 0 && <div className="text-center py-10 text-slate-400 font-bold">Store is empty.</div>}
                           </div>
                       </div>
                   )}
@@ -933,10 +1063,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   <table className="w-full text-left">
                       <thead className="sticky top-0 bg-white">
                           <tr className="border-b-2 border-slate-100">
-                              <th className="pb-4 pl-4 font-extrabold text-slate-400 uppercase text-xs">Time</th>
-                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Student</th>
-                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Action</th>
-                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">Device</th>
+                              <th className="pb-4 pl-4 font-extrabold text-slate-400 uppercase text-xs w-1/3">Time</th>
+                              <th className="pb-4 font-extrabold text-slate-400 uppercase text-xs">User</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -944,8 +1072,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                               <tr key={i} className="hover:bg-slate-50">
                                   <td className="py-3 pl-4 text-xs font-bold text-slate-400">{new Date(log.timestamp).toLocaleString()}</td>
                                   <td className="py-3 font-bold text-slate-700">{log.name}</td>
-                                  <td className="py-3 text-sm text-slate-600">{log.action}</td>
-                                  <td className="py-3 text-xs font-mono text-slate-400">{log.device}</td>
                               </tr>
                           ))}
                       </tbody>

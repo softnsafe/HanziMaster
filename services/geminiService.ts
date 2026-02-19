@@ -54,32 +54,59 @@ const playAudioUrl = (url: string): Promise<boolean> => {
     return new Promise((resolve) => {
         const audio = new Audio(url);
         audio.onended = () => resolve(true);
-        audio.onerror = () => resolve(false);
+        audio.onerror = (e) => {
+            // Not logging error here as 404 is expected fallback behavior
+            resolve(false);
+        };
         // Timeout if it hangs
-        setTimeout(() => resolve(false), 4000);
-        audio.play().catch(() => resolve(false));
+        setTimeout(() => resolve(false), 3000);
+        audio.play().catch((e) => {
+            // Usually 404 or Not Supported error results in promise rejection or immediate error
+            resolve(false);
+        });
     });
 };
 
+const showToast = (msg: string) => {
+    if (document.getElementById('audio-toast')) return; // Prevent duplicate
+    const toast = document.createElement('div');
+    toast.id = 'audio-toast';
+    toast.innerText = msg;
+    toast.style.cssText = "position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;padding:8px 16px;border-radius:20px;z-index:9999;font-size:12px;font-family:sans-serif;pointer-events:none;transition:opacity 0.3s;opacity:0;box-shadow:0 4px 6px rgba(0,0,0,0.1);backdrop-filter:blur(4px);";
+    document.body.appendChild(toast);
+    
+    // Fade in
+    requestAnimationFrame(() => toast.style.opacity = '1');
+    
+    // Remove
+    setTimeout(() => { 
+        toast.style.opacity = '0'; 
+        setTimeout(() => toast.remove(), 300); 
+    }, 2500);
+};
+
 export const playPronunciation = async (text: string, overrideUrl?: string, pinyin?: string) => {
+  const cleanText = text.trim();
+
   // 1. Try Override URL if provided (from Assignment Metadata)
   if (overrideUrl) {
       const url = convertAudioDriveLink(overrideUrl);
       const success = await playAudioUrl(url);
       if (success) return;
-      console.warn("Override audio failed, trying dictionary...");
   }
 
   // 2. Try Global Dictionary from Sheet
   try {
       const dict = await sheetService.getDictionary();
-      let dictUrl = dict[text];
+      let dictUrl = dict[cleanText];
       
-      // Fallback: If exact match not found, try Simplified version (Dictionary is often Simp)
+      // Fallback Strategy: Check both Simplified and Traditional variants
       if (!dictUrl) {
-          const simpText = convertCharacter(text, 'Simplified');
-          if (simpText !== text) {
-              dictUrl = dict[simpText];
+          const simpText = convertCharacter(cleanText, 'Simplified');
+          if (dict[simpText]) dictUrl = dict[simpText];
+          else {
+              const tradText = convertCharacter(cleanText, 'Traditional');
+              if (dict[tradText]) dictUrl = dict[tradText];
           }
       }
       
@@ -87,20 +114,26 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
           const url = convertAudioDriveLink(dictUrl);
           const success = await playAudioUrl(url);
           if (success) return;
-          console.warn("Dictionary audio failed, trying local fallback...");
       }
   } catch (e) {
       console.warn("Dictionary lookup failed", e);
   }
 
-  // 3. Try Local File Fallback (e.g. /audio/hao3.mp3)
+  // 3. Try Local File Fallback (e.g. /audio/hao3.mp3 or .m4a)
   if (pinyin) {
       // Clean pinyin (remove spaces, lowercase)
       const cleanPinyin = pinyin.toLowerCase().replace(/\s+/g, '');
-      const localUrl = `/audio/${cleanPinyin}.mp3`;
-      const success = await playAudioUrl(localUrl);
-      if (success) return;
-      console.warn(`Local audio ${localUrl} not found, using TTS.`);
+      
+      // Try MP3 first
+      const mp3Url = `/audio/${cleanPinyin}.mp3`;
+      if (await playAudioUrl(mp3Url)) return;
+
+      // Try M4A second (Fallback for mp4 audio containers)
+      const m4aUrl = `/audio/${cleanPinyin}.m4a`;
+      if (await playAudioUrl(m4aUrl)) return;
+
+      console.warn(`Local audio ${cleanPinyin} not found, using TTS.`);
+      showToast(`Audio file missing for "${cleanPinyin}". Using generated voice.`);
   }
 
   // 4. Fallback to Browser's built-in Speech Synthesis
@@ -108,15 +141,33 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       // Cancel any ongoing speech
       window.speechSynthesis.cancel();
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN'; // Set language to Chinese
-      utterance.rate = 0.8; // Slightly slower for clarity
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = 'zh-CN'; 
+      utterance.rate = 0.8; 
       
-      // Try to find a Chinese voice
-      const voices = window.speechSynthesis.getVoices();
-      const zhVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('CN'));
+      // Smart Voice Selection (Prioritize Microsoft Xiaoxiao)
+      let voices = window.speechSynthesis.getVoices();
+      if (voices.length === 0) {
+          // Retry after delay if voices haven't loaded
+          await new Promise(r => setTimeout(r, 50));
+          voices = window.speechSynthesis.getVoices();
+      }
+
+      // Priority Order:
+      // 1. "Xiaoxiao" (Windows/Edge Neural)
+      // 2. "Microsoft" + "Chinese" (General Windows)
+      // 3. Exact 'zh-CN'
+      // 4. Any 'zh'
+      let zhVoice = voices.find(v => v.name.includes('Xiaoxiao'));
+      if (!zhVoice) zhVoice = voices.find(v => v.name.includes('Yunxi') || v.name.includes('HsiaoYu'));
+      if (!zhVoice) zhVoice = voices.find(v => v.lang === 'zh-CN' && v.name.includes('Microsoft'));
+      if (!zhVoice) zhVoice = voices.find(v => v.lang === 'zh-CN');
+      if (!zhVoice) zhVoice = voices.find(v => v.lang.includes('zh'));
+
       if (zhVoice) {
           utterance.voice = zhVoice;
+          // Xiaoxiao is sometimes fast, slow it down slightly more
+          if (zhVoice.name.includes('Xiaoxiao')) utterance.rate = 0.75;
       }
 
       window.speechSynthesis.speak(utterance);

@@ -397,6 +397,13 @@ export const sheetService = {
 
   // --- POST METHODS ---
 
+  async addStudent(name: string, password?: string) {
+      if (this.isDemoMode()) return { success: true };
+      const res = await postData('addStudent', { name, password });
+      if (res.success) invalidateCache('progress');
+      return res;
+  },
+
   async addToDictionary(item: { character: string, pinyin?: string, definition?: string, audioUrl?: string }) {
       if (this.isDemoMode()) return { success: true };
       const res = await postData('addToDictionary', item);
