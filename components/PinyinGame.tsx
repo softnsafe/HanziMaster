@@ -4,7 +4,7 @@ import { Button } from './Button';
 import { Flashcard, Lesson } from '../types';
 import { getFlashcardData, playPronunciation, validatePinyinWithAI } from '../services/geminiService';
 import { sheetService } from '../services/sheetService';
-import { pinyinify } from '../utils/pinyinUtils';
+import { pinyinify, comparePinyin } from '../utils/pinyinUtils';
 import { convertCharacter } from '../utils/characterConverter';
 
 interface PinyinGameProps {
@@ -24,7 +24,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
 
   // Data State
   const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
-  const [dictionary, setDictionary] = useState<Record<string, string>>({});
+  // Use Full Dictionary for Offline Data
+  const [fullDict, setFullDict] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
   
   // Interaction State
   const [inputValue, setInputValue] = useState('');
@@ -42,21 +43,32 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const currentChar = queue[currentIndex];
   const card = currentChar ? flashcards[currentChar] : undefined;
 
-  // 1. Load Dictionary
+  // 1. Load Full Dictionary
   useEffect(() => {
       const loadDict = async () => {
           try {
-              const dict = await sheetService.getDictionary(true);
-              setDictionary(dict);
+              const dict = await sheetService.getFullDictionary(false); // cached
+              setFullDict(dict);
           } catch(e) { console.warn("Dict load fail", e); }
       };
       loadDict();
   }, []);
 
-  // 2. Load Card Data
+  // 2. Load Card Data (Try Dictionary -> Then AI)
   useEffect(() => {
     const loadCard = async () => {
       if (!currentChar || isFinished || flashcards[currentChar]) return;
+
+      // OFFLINE FIRST: Check if data exists in the dictionary sheet
+      if (fullDict[currentChar] && fullDict[currentChar].pinyin) {
+          setFlashcards(prev => ({ ...prev, [currentChar]: {
+              character: currentChar,
+              pinyin: fullDict[currentChar].pinyin,
+              definition: fullDict[currentChar].definition,
+              emoji: '📝' // Use a generic icon or we could add emoji to sheet later
+          }}));
+          return;
+      }
 
       setLoadingCard(true);
       const data = await getFlashcardData(currentChar);
@@ -65,7 +77,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       setTimeout(() => inputRef.current?.focus(), 100);
     };
     loadCard();
-  }, [currentChar, isFinished, flashcards]);
+  }, [currentChar, isFinished, flashcards, fullDict]); // Depend on fullDict to trigger when loaded
 
   // 3. Reset per card
   useEffect(() => {
@@ -74,7 +86,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       setInputValue('');
       setAiFeedback('');
       setTimeout(() => inputRef.current?.focus(), 100);
-  }, [currentIndex, queue]); // Depend on queue to catch review mode switches
+  }, [currentIndex, queue]); 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,19 +98,20 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
     let isCorrect = false;
     let feedback = '';
     
-    // Optimistic normalization check first (for speed)
-    const normalize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, '').replace(/v/g, 'ü').replace(/u:/g, 'ü');
-    if (normalize(inputValue) === normalize(card.pinyin)) {
+    // 1. Local Validation (Strict & Tone Matching)
+    if (comparePinyin(inputValue, card.pinyin)) {
         isCorrect = true;
         feedback = "Perfect!";
     } else {
-        // Fallback to AI for fuzzy matching (tones, logic)
+        // 2. AI Validation (Fuzzy Logic / Polyphones)
+        // Only call AI if local check fails
         try {
             const result = await validatePinyinWithAI(currentChar, inputValue);
             isCorrect = result.isCorrect;
             feedback = result.feedback;
         } catch (e) {
-            // If AI fails, stay with the strict check result (which was false)
+            // AI Failed (Offline/Key Error) -> Fallback to strict result
+            // Since comparePinyin returned false, we assume incorrect
             feedback = "Incorrect";
         }
     }
@@ -108,19 +121,14 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
     if (isCorrect) {
       setStatus('CORRECT');
       setAiFeedback(feedback);
-      
-      // Only record 100 if it's the first try, otherwise 50 if they eventually got it
       const score = attempts === 0 ? 100 : 50; 
       onRecordResult(currentChar, score, 'PINYIN');
-      
-      // Auto-play sound on correct
       handlePlaySound();
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       setAiFeedback(feedback);
       
-      // Shake effect
       const inputEl = inputRef.current;
       if (inputEl) {
           inputEl.classList.add('animate-shake');
@@ -128,12 +136,10 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       }
 
       if (newAttempts >= 3) {
-          setStatus('WRONG'); // Give up state
+          setStatus('WRONG'); 
           if (!mistakes.includes(currentChar)) setMistakes(prev => [...prev, currentChar]);
           onRecordResult(currentChar, 0, 'PINYIN');
       } else {
-          // Soft error, let them try again
-          // Don't clear input completely, let them edit
           setTimeout(() => inputRef.current?.focus(), 100);
       }
     }
@@ -142,7 +148,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const handleNext = () => {
     if (currentIndex >= queue.length - 1) {
        if (mistakes.length > 0 && !isReviewMode) {
-           // Enter Review Mode
            setQueue(mistakes);
            setMistakes([]); 
            setCurrentIndex(0);
@@ -157,7 +162,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const handlePlaySound = async () => {
       if (isPlayingAudio || !currentChar) return;
       setIsPlayingAudio(true);
-      const audioUrl = lesson.metadata?.customAudio?.[currentChar];
+      const audioUrl = lesson.metadata?.customAudio?.[currentChar] || fullDict[currentChar]?.audio;
       await playPronunciation(currentChar, audioUrl, card?.pinyin);
       setIsPlayingAudio(false);
   };
@@ -187,9 +192,14 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       );
   }
 
-  if (!card) return null;
+  if (!card) return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-4">
+          <div className="text-4xl mb-2">⚠️</div>
+          <p className="font-bold text-slate-500">Could not load card.</p>
+          <Button onClick={handleNext} className="mt-4">Skip</Button>
+      </div>
+  );
 
-  // Dynamic Styles based on Status
   const getContainerStyles = () => {
       if (status === 'CORRECT') return 'bg-emerald-50 border-emerald-200';
       if (status === 'WRONG') return 'bg-rose-50 border-rose-200';
@@ -224,21 +234,17 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
           {/* 2. Game Card */}
           <div className={`relative w-full max-w-sm rounded-[3rem] p-8 shadow-2xl border-4 transition-all duration-500 flex flex-col items-center justify-between min-h-[400px] ${getContainerStyles()}`}>
                 
-                {/* Status Icon Badge */}
                 {status !== 'IDLE' && (
                     <div className={`absolute -top-6 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-lg border-4 border-white animate-bounce-in z-20 ${status === 'CORRECT' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
                         {status === 'CORRECT' ? '✨' : '❌'}
                     </div>
                 )}
 
-                {/* Content */}
                 <div className="flex flex-col items-center w-full z-10 space-y-6 flex-1 justify-center">
-                    {/* Floating Emoji */}
                     <div className="text-8xl filter drop-shadow-xl animate-float cursor-pointer hover:scale-110 transition-transform select-none">
                         {card.emoji}
                     </div>
 
-                    {/* Character & Audio */}
                     <div className="flex flex-col items-center relative">
                         <h1 className="text-7xl font-serif-sc font-black text-slate-800 mb-2 tracking-wide drop-shadow-sm">
                             {currentChar}
@@ -254,7 +260,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                     </div>
                 </div>
 
-                {/* Input Area (Visible only when IDLE or Retry) */}
                 {status !== 'CORRECT' && status !== 'WRONG' && (
                     <form onSubmit={handleSubmit} className="w-full mt-6 relative z-20 max-w-[280px]">
                         <div className="relative group">
@@ -282,11 +287,14 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                                 {3 - attempts} tries left
                             </p>
                         )}
+                        {/* Fallback Warning if Pinyin Missing */}
+                        {card.pinyin === '?' && (
+                            <p className="text-[10px] text-amber-500 font-bold text-center mt-2">AI Unavailable. Guess blindly or skip.</p>
+                        )}
                     </form>
                 )}
           </div>
 
-          {/* 3. Feedback Bar (Static under card) */}
           {(status === 'CORRECT' || status === 'WRONG') && (
               <div className={`w-full p-4 rounded-2xl shadow-xl animate-slide-up flex flex-col gap-3 border-4 ${status === 'CORRECT' ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
                   
@@ -295,7 +303,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                           <h3 className={`text-lg font-extrabold mb-1 ${status === 'CORRECT' ? 'text-emerald-600' : 'text-rose-600'}`}>
                               {status === 'CORRECT' ? 'Nice work!' : 'Not quite.'}
                           </h3>
-                          {/* AI Feedback Bubble */}
                           <div className="bg-white/60 backdrop-blur-sm p-2 px-3 rounded-lg rounded-tl-none border border-black/5 inline-block w-full">
                               <p className={`text-xs font-bold leading-snug ${status === 'CORRECT' ? 'text-emerald-700' : 'text-rose-700'}`}>
                                   {aiFeedback || (status === 'CORRECT' ? "You got the tones right!" : "Check the definition and try again.")}
@@ -303,7 +310,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                           </div>
                       </div>
                       
-                      {/* Correct Answer Display (if wrong) */}
                       {status === 'WRONG' && (
                           <div className="text-right pl-3 shrink-0">
                               <div className="text-[10px] font-black text-rose-400 uppercase mb-0.5">Correct</div>

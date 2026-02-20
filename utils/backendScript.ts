@@ -1,12 +1,12 @@
 
 export const APPS_SCRIPT_TEMPLATE = `
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.25.6)
+// HANZI MASTER BACKEND SCRIPT (v3.25.7)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.25.6'; 
+const VERSION = 'v3.25.7'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -75,7 +75,16 @@ function setup() {
 
   // 6. STUDENT ASSIGNMENTS
   let saSheet = ss.getSheetByName('StudentAssignments');
-  if (!saSheet) { saSheet = ss.insertSheet('StudentAssignments'); saSheet.appendRow(['StudentID', 'AssignmentID', 'Status', 'Timestamp']); saSheet.setFrozenRows(1); }
+  if (!saSheet) { 
+      saSheet = ss.insertSheet('StudentAssignments'); 
+      saSheet.appendRow(['StudentID', 'AssignmentID', 'Status', 'Timestamp', 'PointsEarned']); 
+      saSheet.setFrozenRows(1); 
+  } else {
+      var headers = saSheet.getRange(1, 1, 1, saSheet.getLastColumn()).getValues()[0];
+      if (findColumnIndex(headers, ['pointsearned', 'points']) === -1) { 
+          saSheet.getRange(1, saSheet.getLastColumn() + 1).setValue('PointsEarned'); 
+      }
+  }
 
   // 7. LOGS
   let logSheet = ss.getSheetByName('LoginLogs');
@@ -124,8 +133,8 @@ function setup() {
   if (!ruleSheet) {
     ruleSheet = ss.insertSheet('RewardRules');
     ruleSheet.appendRow(['ID', 'ActionKey', 'Description', 'Points']);
-    ruleSheet.appendRow(['rule-1', 'ASSIGNMENT_COMPLETE', 'Complete an assignment', 10]);
-    ruleSheet.appendRow(['rule-2', 'ASSIGNMENT_RETRY', 'Practice again (Review)', 5]);
+    ruleSheet.appendRow(['rule-1', 'ASSIGNMENT_COMPLETE', 'Complete an assignment', 30]);
+    ruleSheet.appendRow(['rule-2', 'ASSIGNMENT_RETRY', 'Practice again (Review)', 30]);
     ruleSheet.setFrozenRows(1);
   }
 
@@ -536,13 +545,46 @@ function updateAssignmentStatus(payload) {
   let sheet = ss.getSheetByName('StudentAssignments');
   if (!sheet) { setup(); sheet = ss.getSheetByName('StudentAssignments'); }
   const data = sheet.getDataRange().getValues();
-  let foundRow = -1;
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(payload.studentId) && String(data[i][1]) === String(payload.assignmentId)) { foundRow = i + 1; break; }
+  
+  // Headers check for Points column
+  const headers = data[0];
+  let ptsIdx = findColumnIndex(headers, ['points', 'pointsearned']);
+  if (ptsIdx === -1) { 
+      sheet.getRange(1, headers.length + 1).setValue('PointsEarned'); 
+      ptsIdx = headers.length; 
+      SpreadsheetApp.flush();
   }
-  if (foundRow > 0) { sheet.getRange(foundRow, 3).setValue(payload.status); sheet.getRange(foundRow, 4).setValue(new Date().toISOString()); } 
-  else { sheet.appendRow([payload.studentId, payload.assignmentId, payload.status, new Date().toISOString()]); }
-  return response({ status: 'success' });
+
+  let foundRow = -1;
+  let currentPoints = 0;
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(payload.studentId) && String(data[i][1]) === String(payload.assignmentId)) { 
+        foundRow = i + 1; 
+        currentPoints = Number(data[i][ptsIdx]) || 0;
+        break; 
+    }
+  }
+
+  const MAX_POINTS = 60; // Max cap per assignment
+  const requestedPoints = Number(payload.pointsToAdd) || 0;
+  const availableRoom = Math.max(0, MAX_POINTS - currentPoints);
+  const actualPoints = Math.min(requestedPoints, availableRoom);
+  const newTotal = currentPoints + actualPoints;
+
+  if (foundRow > 0) { 
+      sheet.getRange(foundRow, 3).setValue(payload.status); 
+      sheet.getRange(foundRow, 4).setValue(new Date().toISOString());
+      sheet.getRange(foundRow, ptsIdx + 1).setValue(newTotal);
+  } else { 
+      const row = [payload.studentId, payload.assignmentId, payload.status, new Date().toISOString()];
+      // Ensure row has enough columns if PointsEarned is far out
+      while(row.length < ptsIdx) row.push('');
+      row[ptsIdx] = newTotal;
+      sheet.appendRow(row);
+  }
+  
+  return response({ status: 'success', actualPoints: actualPoints });
 }
 
 function getLoginLogs() {
@@ -552,7 +594,7 @@ function getLoginLogs() {
   const data = sheet.getDataRange().getValues();
   const logs = [];
   const start = Math.max(1, data.length - 50);
-  for (let i = data.length - 1; i >= start; i--) {
+  for (let i = data.length - 50; i >= start; i--) {
     logs.push({ timestamp: data[i][0], studentId: String(data[i][1]), name: String(data[i][2]), action: String(data[i][3]), device: String(data[i][4] || '') });
   }
   return response({ logs: logs });
@@ -1103,4 +1145,4 @@ function getAllStudentProgress(startDate, endDate) {
   
   return response({ students: students });
 }
-`
+`;

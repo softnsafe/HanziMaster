@@ -963,7 +963,35 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   </div>
 
                   {/* POINTS MODE */}
-                  {rewardMode === 'POINTS' && (<div><div className="flex gap-4 mb-6 items-center bg-slate-50 p-4 rounded-2xl border border-slate-200"><div className="flex items-center gap-2"><span className="font-bold text-slate-500 text-sm">Amount:</span><input type="number" value={rewardPoints} onChange={e => setRewardPoints(Number(e.target.value))} className="w-20 px-3 py-2 rounded-lg border-2 border-slate-200 font-bold outline-none" /></div><div className="flex-1"><input value={rewardReason} onChange={e => setRewardReason(e.target.value)} placeholder="Reason (e.g. Good Participation)" className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 font-medium outline-none" /></div><Button onClick={handleGivePoints} disabled={selectedStudentIds.size === 0}>Give to {selectedStudentIds.size || '0'} Students</Button></div><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-indigo-200'}`}><div className="flex justify-between items-start mb-2"><div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-xs">✓</span>}</div><span className="font-black text-amber-500 text-xs">⭐ {s.points}</span></div><p className="font-bold text-slate-700 truncate">{s.name}</p></div>))}</div>{studentData.length === 0 && <div className="text-center py-10 text-slate-400">No students found.</div>}<div className="mt-4"><Button variant="ghost" size="sm" onClick={toggleSelectAll}>Select All</Button></div></div>)}
+                  {rewardMode === 'POINTS' && (
+                      <div>
+                          <div className="flex flex-col gap-4 mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                              <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-500 text-sm">Amount:</span>
+                                      <input type="number" value={rewardPoints} onChange={e => setRewardPoints(Number(e.target.value))} className="w-20 px-3 py-2 rounded-lg border-2 border-slate-200 font-bold outline-none" />
+                                  </div>
+                                  <div className="flex-1">
+                                      <input value={rewardReason} onChange={e => setRewardReason(e.target.value)} placeholder="Reason (e.g. Good Participation)" className="w-full px-4 py-2 rounded-lg border-2 border-slate-200 font-medium outline-none" />
+                                  </div>
+                                  <Button onClick={handleGivePoints} disabled={selectedStudentIds.size === 0}>Give to {selectedStudentIds.size || '0'} Students</Button>
+                              </div>
+                              <div className="flex gap-2 flex-wrap">
+                                  {['Answered Question', 'Helping Others', 'Great Focus', 'Teamwork'].map(r => (
+                                      <button 
+                                          key={r} 
+                                          onClick={() => setRewardReason(r)}
+                                          className="px-3 py-1 bg-white hover:bg-indigo-100 text-slate-500 hover:text-indigo-600 rounded-full text-xs font-bold transition-colors border border-slate-200"
+                                      >
+                                          {r}
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 shadow-md transform -translate-y-1' : 'bg-white border-slate-100 hover:border-indigo-200'}`}><div className="flex justify-between items-start mb-2"><div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-xs">✓</span>}</div><span className="font-black text-amber-500 text-xs">⭐ {s.points}</span></div><p className="font-bold text-slate-700 truncate">{s.name}</p></div>))}</div>
+                          {studentData.length === 0 && <div className="text-center py-10 text-slate-400">No students found.</div>}<div className="mt-4"><Button variant="ghost" size="sm" onClick={toggleSelectAll}>Select All</Button></div>
+                      </div>
+                  )}
                   
                   {/* STICKER GIFT MODE - Updated to open preview */}
                   {rewardMode === 'STICKER' && (<div><div className="mb-6"><h4 className="font-extrabold text-slate-600 mb-3">1. Select Students ({selectedStudentIds.size})</h4><div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 max-h-[150px] overflow-y-auto pr-2">{studentData.map(s => (<div key={s.id} onClick={() => toggleStudent(s.id)} className={`p-2 rounded-xl border cursor-pointer text-xs font-bold transition-all flex items-center gap-2 ${selectedStudentIds.has(s.id) ? 'bg-indigo-50 border-indigo-400 text-indigo-700' : 'bg-white border-slate-100 text-slate-500'}`}><div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'}`}>{selectedStudentIds.has(s.id) && <span className="text-white text-[10px]">✓</span>}</div><span className="truncate">{s.name}</span></div>))}</div>{studentData.length === 0 && <div className="text-center py-4 text-slate-400 text-xs">No students found.</div>}<Button variant="ghost" size="sm" onClick={toggleSelectAll} className="mt-2 text-xs h-8">Select All</Button></div><div className="border-t border-slate-100 pt-6"><div className="flex justify-between items-center mb-4"><h4 className="font-extrabold text-slate-600">2. Select Sticker</h4><Button onClick={handleGiveSticker} disabled={selectedStudentIds.size === 0 || !selectedSticker}>Send {selectedSticker ? selectedSticker.name : 'Sticker'}</Button></div>

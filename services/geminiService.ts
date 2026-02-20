@@ -17,6 +17,17 @@ const getAI = (): GoogleGenAI => {
   return aiInstance;
 };
 
+// Helper to clean JSON string from Markdown code blocks
+const cleanJson = (text: string): string => {
+    if (!text) return "";
+    let cleaned = text.trim();
+    // Remove markdown code blocks ```json ... ``` or just ``` ... ```
+    if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(json)?/, '').replace(/```$/, '');
+    }
+    return cleaned.trim();
+};
+
 // --- Audio Decoding Helpers (Kept for future use if Gemini TTS is re-enabled) ---
 function decode(base64: string) {
   const binaryString = atob(base64);
@@ -390,7 +401,9 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
     const text = response.text;
     if (!text) throw new Error("No response");
     
-    const data = JSON.parse(text);
+    // Sanitize JSON before parsing
+    const cleanText = cleanJson(text);
+    const data = JSON.parse(cleanText);
     return {
       character,
       ...data
@@ -451,7 +464,9 @@ export const validatePinyinWithAI = async (character: string, userInput: string)
     });
 
     if (response.text) {
-        return JSON.parse(response.text);
+        // Sanitize JSON before parsing
+        const cleanText = cleanJson(response.text);
+        return JSON.parse(cleanText);
     }
     throw new Error("No response from AI");
   } catch (error) {
@@ -486,7 +501,7 @@ export const generateDistractors = async (answer: string, context: string): Prom
 
         const text = response.text;
         if (!text) return ["一", "不", "人"];
-        return JSON.parse(text);
+        return JSON.parse(cleanJson(text));
     } catch (error) {
         console.error("Error generating distractors:", error);
         return ["一", "不", "人"]; // Super basic fallback
@@ -551,7 +566,7 @@ export const gradeHandwriting = async (
     const text = response.text;
     if (!text) throw new Error("No response from Gemini");
     
-    return JSON.parse(text) as GradingResult;
+    return JSON.parse(cleanJson(text)) as GradingResult;
 
   } catch (error) {
     console.error("Error grading handwriting:", error);

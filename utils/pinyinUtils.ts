@@ -1,5 +1,4 @@
 
-
 const TONE_MARKS: Record<string, string> = {
     a: 'āáǎàa',
     e: 'ēéěèe',
@@ -51,4 +50,30 @@ export const pinyinify = (text: string): string => {
 
         return base.substring(0, vowelIndex) + replacement + base.substring(vowelIndex + 1);
     }).join(' ');
+};
+
+export const comparePinyin = (input: string, target: string): boolean => {
+    if (!input || !target) return false;
+    
+    const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '').replace(/v/g, 'ü').replace(/u:/g, 'ü');
+    
+    const cleanInput = normalize(input);
+    const cleanTarget = normalize(target);
+    
+    // Direct match (e.g. hao3 === hao3)
+    if (cleanInput === cleanTarget) return true;
+    
+    // Tone Mark match (e.g. hǎo === hǎo)
+    if (cleanInput === cleanTarget) return true;
+    
+    // Cross match (hǎo === hao3) using pinyinify to standardize to marks
+    // We convert both to marks. If one is already marks, pinyinify usually keeps it (mostly).
+    // Note: pinyinify expects tone numbers. If input is 'hǎo', pinyinify('hǎo') returns 'hǎo'.
+    // If input is 'hao3', pinyinify('hao3') returns 'hǎo'.
+    // So pinyinify is a good normalizer to Tone Marks.
+    
+    const inputMarks = normalize(pinyinify(input));
+    const targetMarks = normalize(pinyinify(target));
+    
+    return inputMarks === targetMarks;
 };

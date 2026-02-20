@@ -480,10 +480,11 @@ export const sheetService = {
       return res;
   },
 
-  async updateAssignmentStatus(sid: string, aid: string, s: AssignmentStatus) {
-      if (this.isDemoMode()) return;
-      await postData('updateAssignmentStatus', { studentId: sid, assignmentId: aid, status: s });
+  async updateAssignmentStatus(sid: string, aid: string, s: AssignmentStatus, pointsToAdd: number = 0) {
+      if (this.isDemoMode()) return { success: true, actualPoints: pointsToAdd }; // Demo mode acts as if capping logic isn't strictly enforced backend-side or assumes it worked
+      const res = await postData('updateAssignmentStatus', { studentId: sid, assignmentId: aid, status: s, pointsToAdd });
       invalidateCache(`status_${sid}`);
+      return res;
   },
 
   async updatePoints(sid: string, d: number, r: string) {

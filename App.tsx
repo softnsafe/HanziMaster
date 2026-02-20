@@ -122,40 +122,30 @@ const App: React.FC = () => {
   const completeAssignment = async (lessonId: string) => {
       if (!student) return;
       
-      // Determine points based on rules or specific assignment points
-      const completeRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_COMPLETE');
-      const retryRule = rewardRules.find(r => r.actionKey === 'ASSIGNMENT_RETRY');
-
-      // Default logic: Use Assignment Specific Points -> Rule Points -> 10 fallback
-      let pointsToAward = 10;
-      let reason = "Completed Assignment";
-
-      // Check if assignment has specific points
+      // Determine points: Default to 30 as requested, or use specific assignment value
+      let pointsToRequest = 30;
       if (currentLesson && currentLesson.metadata?.points) {
-          pointsToAward = currentLesson.metadata.points;
-      } else if (completeRule) {
-          pointsToAward = completeRule.points;
-      }
-
-      try {
-          const statuses = await sheetService.getAssignmentStatuses(student.id);
-          const currentStatus = statuses.find(s => s.assignmentId === lessonId)?.status;
-          
-          if (currentStatus === 'COMPLETED') {
-              // If already completed, give a smaller "retry" reward (usually 5)
-              pointsToAward = retryRule ? retryRule.points : 5;
-              reason = "Practice Review";
-          }
-      } catch (e) {
-          console.warn("Status check failed, defaulting to full points", e);
-      }
+          pointsToRequest = currentLesson.metadata.points;
+      } 
 
       await performSave(async () => {
-          await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED');
-          // Award points for completion!
-          const result = await sheetService.updatePoints(student.id, pointsToAward, reason);
-          if (result.success && result.points) {
-              setStudent(prev => prev ? { ...prev, points: result.points! } : null);
+          // Send completion status AND requested points to backend.
+          // The backend enforces the 60-point cap logic.
+          const statusRes = await sheetService.updateAssignmentStatus(student.id, lessonId, 'COMPLETED', pointsToRequest);
+          
+          const actualPoints = statusRes.actualPoints || 0;
+          
+          if (actualPoints > 0) {
+              // Award only the capped amount allowed by the backend
+              const result = await sheetService.updatePoints(student.id, actualPoints, "Assignment Completed");
+              if (result.success && result.points !== undefined) {
+                  // In demo mode, update manually if needed
+                  if (sheetService.isDemoMode()) {
+                      setStudent(prev => prev ? { ...prev, points: prev.points + actualPoints } : null);
+                  } else {
+                      setStudent(prev => prev ? { ...prev, points: result.points! } : null);
+                  }
+              }
           }
       });
   };
@@ -348,10 +338,11 @@ const App: React.FC = () => {
         // 2. Optimistic Update (Show in UI immediately)
         setPracticeRecords(prev => [...prev, newRecord]);
         
-        // 3. Save to Backend (Progress Recording)
+        // 3. Save to Backend (Progress Only - Points are awarded on full completion now)
         await performSave(async () => {
             await sheetService.savePracticeRecord(student.name, newRecord);
-            // Also update assignment status to IN_PROGRESS if not already started
+            
+            // Update assignment status to IN_PROGRESS if not already started
             // SAFETY CHECK: Do NOT overwrite if we are on the very last character
             // (because the completion logic will fire immediately after this)
             if (currentLesson) {
@@ -381,9 +372,10 @@ const App: React.FC = () => {
         setPracticeRecords(prev => [...prev, newRecord]);
       }
 
-      // Save to backend immediately
+      // Save to backend immediately (Progress Only - Points are awarded on full completion now)
       await performSave(async () => {
           await sheetService.savePracticeRecord(student.name, newRecord);
+          
           if (currentLesson) {
              await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
           }
@@ -567,7 +559,6 @@ const App: React.FC = () => {
   const renderPracticeWriting = () => {
     if (!currentLesson || queueIndex >= practiceQueue.length) {
        // Completion View - Shows success message
-       // We can rely on the fact that handleNextWritingCharacter triggered the sync already.
        return (
          <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 animate-fade-in">
            <div className="bg-white p-10 rounded-[2rem] shadow-xl text-center max-w-lg border border-indigo-50">
@@ -728,6 +719,7 @@ const App: React.FC = () => {
                     onLogout={handleLogout}
                     onRefreshData={refreshUserData}
                     rewardRules={rewardRules} // Passing rules
+                    onUpdateStudent={(updates) => setStudent(prev => prev ? { ...prev, ...updates } : null)}
                 />
              </div>
           </div>

@@ -1,22 +1,21 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Lesson, Student, StudentAssignment, PracticeMode, PracticeRecord, CalendarEvent, AppView, StoreItem, PointLogEntry, ClassGoal, RewardRule } from '../types';
+import { Lesson, Student, StudentAssignment, PracticeMode, CalendarEvent, StoreItem, PointLogEntry, ClassGoal, RewardRule } from '../types';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
-import { convertCharacter } from '../utils/characterConverter';
 import { CalendarView } from './CalendarView';
 import { StickerStore } from './StickerStore';
-import { STICKER_CATALOG } from '../utils/stickerData';
 import { parseLocalDate } from '../utils/dateUtils';
 
 interface DashboardProps {
   student: Student;
-  records: PracticeRecord[]; 
+  records: any[]; 
   onStartPractice: (lesson: Lesson, mode: PracticeMode) => void;
   onViewReport: () => void;
   onLogout: () => void;
   onRefreshData?: () => Promise<void>; 
   rewardRules?: RewardRule[];
+  onUpdateStudent: (updates: Partial<Student>) => void;
 }
 
 interface Particle {
@@ -27,13 +26,13 @@ interface Particle {
   angle: number;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartPractice, onViewReport, onLogout, onRefreshData, rewardRules = [] }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartPractice, onViewReport, onLogout, onRefreshData, rewardRules = [], onUpdateStudent }) => {
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [statuses, setStatuses] = useState<StudentAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMode, setSelectedMode] = useState<PracticeMode | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0); // Trigger for forcing calendar refresh
+  const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0); 
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [activeGoal, setActiveGoal] = useState<ClassGoal | null>(null);
   
@@ -55,7 +54,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
   const [localStudent, setLocalStudent] = useState<Student>(student);
 
   const loadData = async (forceRefresh = false) => {
-    // Only set loading if we don't have data yet or if it's a manual refresh
     if (assignments.length === 0 || forceRefresh) setIsLoading(true);
     
     try {
@@ -69,7 +67,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
         setStatuses(statusList);
         setStoreItems(items);
         
-        // Find active goal (priority to Pizza)
         const active = goals.find(g => g.status === 'ACTIVE' || g.status === 'COMPLETED') || null;
         setActiveGoal(active);
     } catch (e) {
@@ -79,9 +76,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
     }
   };
 
-  // Reload when student ID changes OR points change (implies activity completion)
   useEffect(() => { 
-      loadData(true); // Force refresh to ensure status is up to date
+      loadData(true); 
   }, [student.id, student.points]);
   
   useEffect(() => { setLocalStudent(student); }, [student]);
@@ -112,13 +108,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
               x: rect.left + rect.width / 2,
               y: rect.top + rect.height / 2,
               emoji: ['🍕', '⭐', '🎉', '🧀', '🥤'][Math.floor(Math.random() * 5)],
-              angle: (Math.random() - 0.5) * 60 // Spread angle
+              angle: (Math.random() - 0.5) * 60 
           });
       }
       
       setParticles(prev => [...prev, ...newParticles]);
-      
-      // Cleanup
       setTimeout(() => {
           setParticles(prev => prev.filter(p => !newParticles.find(np => np.id === p.id)));
       }, 1500);
@@ -131,7 +125,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
       setContributing(true);
       const result = await sheetService.contributeToGoal(localStudent.id, amount, activeGoal.id);
       if (result.success && result.points !== undefined && result.goalCurrent !== undefined) {
-          setLocalStudent(prev => ({ ...prev, points: result.points! }));
+          // Update both local and parent state to ensure consistency
+          const updates = { points: result.points! };
+          setLocalStudent(prev => ({ ...prev, ...updates }));
+          onUpdateStudent(updates);
+
           setActiveGoal(prev => prev ? { 
               ...prev, 
               current: result.goalCurrent!, 
@@ -146,19 +144,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
   const getStatus = (lessonId: string) => statuses.find(s => s.assignmentId === lessonId)?.status || 'NOT_STARTED';
 
   const visibleAssignments = assignments.filter(lesson => {
-    // 1. Check Date Range using Local Date Parsing
     const today = new Date(); today.setHours(0,0,0,0);
     const start = lesson.startDate ? parseLocalDate(lesson.startDate) : null;
     const end = lesson.endDate ? parseLocalDate(lesson.endDate) : null;
 
     if (start && today < start) return false;
+    if (end && today > end) return false;
     
-    // Check end date (inclusive)
-    if (end) {
-        if (today > end) return false;
-    }
-    
-    // 2. Check "Assigned To" logic
     if (lesson.assignedTo && lesson.assignedTo.length > 0) {
         if (!lesson.assignedTo.includes(localStudent.id)) return false;
     }
@@ -177,7 +169,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
 
   return (
     <div className="space-y-8 animate-fade-in pb-10 relative">
-      {/* Particles Container */}
       {particles.length > 0 && (
           <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
               {particles.map((p, i) => (
@@ -227,7 +218,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
             </div>
             <div className="flex flex-wrap justify-center gap-3">
                 <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={() => {
-                    // Force refresh when opening calendar
                     if (!showCalendar) setCalendarRefreshTrigger(prev => prev + 1);
                     setShowCalendar(!showCalendar);
                 }}>
@@ -243,13 +233,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
         </div>
       </div>
       
-      {/* CLASS GOAL WIDGET */}
       {activeGoal && (
           <div className={`
               rounded-[2rem] p-6 shadow-lg border-4 flex flex-col md:flex-row items-center gap-6 relative overflow-hidden transition-all
               ${isGoalReached ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-orange-300' : 'bg-white border-orange-100'}
           `}>
-             {/* Background Decoration */}
              <div className="absolute -right-10 -bottom-10 text-9xl opacity-10 rotate-12 pointer-events-none">
                  {isGoalReached ? '🎉' : '🍕'}
              </div>
@@ -396,7 +384,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                                              <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-500 uppercase tracking-wider">
                                                  {lesson.characters.length} Items
                                              </div>
-                                             {/* Points Badge */}
                                              <div className="bg-amber-100 px-3 py-1 rounded-lg text-xs font-bold text-amber-600 uppercase tracking-wider flex items-center gap-1">
                                                  ⭐ {points}
                                              </div>
@@ -429,7 +416,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
           </section>
       )}
 
-      {/* Point History Modal */}
       {showPointHistory && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowPointHistory(false)}>
               <div className="bg-white rounded-[2rem] p-6 max-w-md w-full max-h-[80vh] flex flex-col shadow-2xl animate-bounce-in" onClick={e => e.stopPropagation()}>
@@ -441,7 +427,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                       <button onClick={() => setShowPointHistory(false)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold">✕</button>
                   </div>
                   
-                  {/* Reward Rules Info */}
                   {rewardRules.length > 0 && (
                       <div className="mb-4 bg-yellow-50 p-3 rounded-xl border border-yellow-200">
                           <h4 className="text-xs font-black text-yellow-600 uppercase mb-2 flex items-center gap-1">
@@ -483,11 +468,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
           </div>
       )}
 
-      {/* Sticker Store Overlay */}
       {showStore && (
           <StickerStore 
             student={localStudent} 
-            onUpdateStudent={(updates) => setLocalStudent(prev => ({ ...prev, ...updates }))}
+            onUpdateStudent={(updates) => {
+                setLocalStudent(prev => ({ ...prev, ...updates }));
+                onUpdateStudent(updates); // Sync with parent App state
+            }}
             onClose={() => setShowStore(false)} 
             initialTab={storeTab}
           />
