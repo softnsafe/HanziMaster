@@ -13,6 +13,7 @@ import { SupportWidget } from './components/SupportWidget';
 import { LoginBackground } from './components/LoginBackground';
 import { sheetService } from './services/sheetService';
 import { convertCharacter } from './utils/characterConverter';
+import { pinyinify } from './utils/pinyinUtils';
 
 const App: React.FC = () => {
   // --- State ---
@@ -222,7 +223,7 @@ const App: React.FC = () => {
 
          // Teacher Detection Logic (Case Insensitive)
          const lowerName = result.student.name.toLowerCase();
-         if (lowerName === 'ms. huang' || lowerName === 'teacher') {
+         if (lowerName === 'ms. vickie' || lowerName === 'ms. huang' || lowerName === 'teacher') {
             setStudent(result.student);
             setCurrentView(AppView.TEACHER_DASHBOARD);
          } else {
@@ -441,7 +442,7 @@ const App: React.FC = () => {
             </h1>
             <p className="text-slate-500 font-bold text-sm tracking-widest uppercase">Homework Portal</p>
             {/* Font size adjusted to text-sm to match Homework Portal */}
-            <p className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent font-extrabold text-sm mt-1 drop-shadow-sm">Ms Huang's Class</p>
+            <p className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent font-extrabold text-sm mt-1 drop-shadow-sm">Ms. Vickie's Class</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">
@@ -529,7 +530,7 @@ const App: React.FC = () => {
           
           <div className="pt-4 text-center">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                This Program is Designed by Ms. Huang
+                This program is designedby Ms. Vickie
             </p>
           </div>
         </form>
@@ -612,7 +613,7 @@ const App: React.FC = () => {
                          {dictionary[char] && (
                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center gap-2 mb-2">
                                  <div className="flex items-center gap-2">
-                                     <span className="text-xl font-bold text-indigo-600">{dictionary[char].pinyin}</span>
+                                     <span className="text-xl font-bold text-indigo-600">{pinyinify(dictionary[char].pinyin)}</span>
                                      {dictionary[char].audio && (
                                          <button 
                                              onClick={() => new Audio(dictionary[char].audio).play()}

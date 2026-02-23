@@ -370,7 +370,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                          {filteredAssignments.length > 0 ? filteredAssignments.map(lesson => {
                              const status = getStatus(lesson.id);
-                             const points = lesson.metadata?.points || 10;
+                             const points = lesson.metadata?.points || 30;
                              
                              return (
                                  <div key={lesson.id} className="bg-white rounded-[2.5rem] p-8 shadow-lg border-2 border-slate-100 hover:border-indigo-200 transition-all flex flex-col justify-between">

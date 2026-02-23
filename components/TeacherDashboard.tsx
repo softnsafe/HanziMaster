@@ -125,7 +125,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [endDate, setEndDate] = useState(() => {
      const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0];
   });
-  const [assignmentPoints, setAssignmentPoints] = useState<number>(10); // Default points
+  const [assignmentPoints, setAssignmentPoints] = useState<number>(30); // Default points
   const [customAudioMap, setCustomAudioMap] = useState<Record<string, string>>({});
   const [currentAssignedTo, setCurrentAssignedTo] = useState<string[]>([]); // Preserve assignments when editing
 
@@ -273,7 +273,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setStartDate(new Date().toISOString().split('T')[0]);
       const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
       setEndDate(nextWeek.toISOString().split('T')[0]);
-      setAssignmentPoints(10); // Reset points
+      setAssignmentPoints(30); // Reset points
       setCustomAudioMap({});
       setCurrentAssignedTo([]);
   };
@@ -364,7 +364,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setStartDate(lesson.startDate ? lesson.startDate.split('T')[0] : '');
       setEndDate(lesson.endDate ? lesson.endDate.split('T')[0] : '');
       setCustomAudioMap(lesson.metadata?.customAudio || {});
-      setAssignmentPoints(lesson.metadata?.points || 10);
+      setAssignmentPoints(lesson.metadata?.points || 30);
       setCurrentAssignedTo(lesson.assignedTo || []);
       
       // 2. Switch Tab
@@ -1050,7 +1050,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       const now = new Date(); now.setHours(0,0,0,0);
                       const start = lesson.startDate ? parseLocalDate(lesson.startDate) : null;
                       const end = lesson.endDate ? parseLocalDate(lesson.endDate) : null;
-                      const points = lesson.metadata?.points || 10;
+                      const points = lesson.metadata?.points || 30;
                       let status = { label: 'Active', color: 'bg-emerald-100 text-emerald-700' };
                       if (start && now < start) status = { label: 'Scheduled', color: 'bg-amber-100 text-amber-700' };
                       else if (end && now > end) status = { label: 'Expired', color: 'bg-slate-200 text-slate-500' };
