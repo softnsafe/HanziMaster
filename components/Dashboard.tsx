@@ -200,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
         <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
             <div>
                 <h1 className="text-3xl font-extrabold mb-2">Hello, {localStudent.name}! 👋</h1>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <button 
                         onClick={handleShowPoints}
                         className="px-3 py-1 bg-white/20 rounded-full font-bold text-sm backdrop-blur-md border border-white/20 flex items-center gap-1 hover:bg-white/30 hover:scale-105 transition-all cursor-pointer shadow-sm"
@@ -210,9 +210,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                     </button>
                     <button 
                         onClick={() => openStore('CATALOG')}
-                        className="px-3 py-1 bg-amber-400 text-amber-900 rounded-full font-black text-sm hover:bg-amber-300 transition-colors shadow-lg"
+                        className="px-3 py-1 bg-white text-indigo-600 rounded-full font-black text-sm hover:bg-indigo-50 transition-colors shadow-lg flex items-center gap-1"
                     >
-                        🛍️ StickerStar
+                        🛍️ Store
+                    </button>
+                    <button 
+                        onClick={() => openStore('COLLECTION')}
+                        className="px-3 py-1 bg-amber-400 text-amber-900 rounded-full font-black text-sm hover:bg-amber-300 transition-colors shadow-lg flex items-center gap-1"
+                    >
+                        📖 My Book
                     </button>
                 </div>
             </div>

@@ -61,7 +61,21 @@ async function decodeAudioData(
 let audioContext: AudioContext | null = null;
 
 // Helper to play audio and return promise that resolves on success/fail
-const playAudioUrl = (url: string): Promise<boolean> => {
+export const playAudioUrl = async (url: string): Promise<boolean> => {
+    if (!url) return false;
+    
+    // For local URLs, check if they exist first to avoid browser console errors
+    if (url.startsWith('/')) {
+        try {
+            const res = await fetch(url, { method: 'HEAD' });
+            if (!res.ok) return false;
+            const contentType = res.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
     return new Promise((resolve) => {
         const audio = new Audio(url);
         audio.onended = () => resolve(true);
@@ -365,6 +379,56 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
     console.error("Error generating sticker (falling back to offline):", error);
     // AUTOMATIC FALLBACK: If API fails (Quota/Network), use offline generator
     return generateFallbackSticker(prompt);
+  }
+};
+
+export const generateDictionaryEntry = async (character: string): Promise<{
+    pinyin: string;
+    definition: string;
+    simplified: string;
+    traditional: string;
+} | null> => {
+  try {
+    const ai = getAI();
+    // Using gemini-3-flash-preview for fast dictionary lookup
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{
+          text: `Analyze the Chinese character/word: "${character}".
+          Return JSON with:
+          - pinyin: Numbered pinyin (e.g. for 好 return 'hao3', for 妈妈 return 'ma1 ma'). Lowercase.
+          - definition: Simple English meaning (1-5 words max).
+          - simplified: The Simplified Chinese version.
+          - traditional: The Traditional Chinese version.
+          `
+        }]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pinyin: { type: Type.STRING },
+            definition: { type: Type.STRING },
+            simplified: { type: Type.STRING },
+            traditional: { type: Type.STRING }
+          },
+          required: ["pinyin", "definition", "simplified", "traditional"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response");
+    
+    // Sanitize JSON before parsing
+    const cleanText = cleanJson(text);
+    return JSON.parse(cleanText);
+
+  } catch (error) {
+    console.error("Error generating dictionary entry:", error);
+    return null;
   }
 };
 

@@ -8,12 +8,16 @@ interface HanziPlayerProps {
   character: string;
   initialMode?: 'view' | 'quiz';
   onComplete?: () => void;
+  pinyin?: string;
+  overrideUrl?: string;
 }
 
 export const HanziPlayer: React.FC<HanziPlayerProps> = ({ 
   character, 
   initialMode = 'view',
-  onComplete 
+  onComplete,
+  pinyin,
+  overrideUrl
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const writerRef = useRef<HanziWriter | null>(null);
@@ -77,7 +81,7 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
   const handleListen = async () => {
       if (isPlayingAudio) return;
       setIsPlayingAudio(true);
-      await playPronunciation(character);
+      await playPronunciation(character, overrideUrl, pinyin);
       setIsPlayingAudio(false);
   };
 

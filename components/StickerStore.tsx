@@ -13,34 +13,14 @@ interface StickerStoreProps {
   initialTab?: 'CATALOG' | 'AI_LAB' | 'COLLECTION';
 }
 
-// Client-side resizing optimized for Google Drive storage (v3.0)
-const resizeImage = (base64Str: string, maxWidth = 256): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = base64Str.startsWith('data:') ? base64Str : `data:image/png;base64,${base64Str}`;
-    img.crossOrigin = "Anonymous";
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      // Keep aspect ratio
-      const scale = maxWidth / img.width;
-      canvas.width = maxWidth;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // Use PNG to preserve transparency and better quality
-          resolve(canvas.toDataURL('image/png', 0.8));
-      } else {
-          resolve(base64Str); // Fallback
-      }
-    };
-    img.onerror = () => resolve(base64Str);
-  });
-};
-
 export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStudent, onClose, initialTab = 'CATALOG' }) => {
-  // AI_LAB option preserved in type for compatibility, but hidden in UI
   const [activeTab, setActiveTab] = useState<'CATALOG' | 'AI_LAB' | 'COLLECTION'>(initialTab === 'AI_LAB' ? 'CATALOG' : initialTab);
+  
+  // Book state: Open = pages visible, Closed = cover visible
+  // Only applies when activeTab is COLLECTION
+  const [isBookOpen, setIsBookOpen] = useState(initialTab !== 'COLLECTION'); // Start closed if entering collection directly
+  const [isOpening, setIsOpening] = useState(false);
+
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
@@ -49,24 +29,16 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   
   const [selectedCategory, setSelectedCategory] = useState<string>('Misc.');
   
-  // AI Lab State
-  const [prompt, setPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [aiCost] = useState(100);
-
   // Preview State
   const [previewItem, setPreviewItem] = useState<any | null>(null);
 
-  // Book State
+  // Book Page
   const [bookPage, setBookPage] = useState(0);
-  const [isBookOpen, setIsBookOpen] = useState(false);
 
   useEffect(() => {
-      if (activeTab === 'CATALOG') {
-          loadStore();
-      }
-  }, [activeTab]);
+      // Load store data in background
+      loadStore();
+  }, []);
 
   const loadStore = async () => {
       setLoadingStore(true);
@@ -75,25 +47,30 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       setLoadingStore(false);
   };
 
-  // Derive categories dynamically from loaded items
   const dynamicCategories = useMemo(() => {
       if (storeItems.length === 0) return [];
       const cats = new Set(storeItems.map(i => i.category || 'Misc.'));
       return Array.from(cats).sort();
   }, [storeItems]);
 
-  // Ensure selected category is valid when items load
   useEffect(() => {
       if (dynamicCategories.length > 0 && !dynamicCategories.includes(selectedCategory)) {
           setSelectedCategory(dynamicCategories[0]);
       }
   }, [dynamicCategories, selectedCategory]);
 
+  const handleOpenBook = () => {
+      setIsOpening(true);
+      setTimeout(() => {
+          setIsBookOpen(true);
+          setIsOpening(false);
+      }, 600); // Sync with CSS transition
+  };
+
   const handleRefreshCollection = async () => {
       setIsRefreshing(true);
       setErrorMsg('');
       try {
-          // Force refresh data from sheet (true = skip cache)
           const allData = await sheetService.getAllStudentProgress(true);
           const freshProfile = allData.find(s => s.id === student.id);
           
@@ -126,7 +103,6 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       if (result.success && result.points !== undefined && result.stickers) {
           onUpdateStudent({ points: result.points, stickers: result.stickers });
       } else {
-          // Display the backend error message if available, otherwise generic
           setErrorMsg(result.message || "Purchase failed. Try again.");
       }
   };
@@ -140,23 +116,22 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   const myAiStickers = myCustomStickers.filter(s => !s.id.startsWith('gift-'));
   const myGiftStickers = myCustomStickers.filter(s => s.id.startsWith('gift-'));
 
-  // --- Sticker Book Logic ---
   const allCollectedStickers = useMemo(() => {
       const list: any[] = [];
-      // 1. Teacher Gifts (Priority)
-      myGiftStickers.forEach(s => list.push({ ...s, _type: 'GIFT', name: s.prompt }));
-      // 2. Store Stickers
+      myGiftStickers.forEach(s => list.push({ ...s, _type: 'GIFT', name: s.prompt, category: 'Gifts' }));
       uniqueOwnedStandard.forEach(s => {
-          if (s) list.push({ ...s, _type: 'STORE' });
+          if (s) list.push({ ...s, _type: 'STORE', category: s.category || 'Misc' });
       });
-      // 3. AI Creations
-      myAiStickers.forEach(s => list.push({ ...s, _type: 'AI', name: s.prompt }));
+      myAiStickers.forEach(s => list.push({ ...s, _type: 'AI', name: s.prompt, category: 'AI Lab' }));
       
-      return list;
+      return list.sort((a, b) => {
+          const catA = a.category || 'Misc';
+          const catB = b.category || 'Misc';
+          return catA.localeCompare(catB) || (a.name || '').localeCompare(b.name || '');
+      });
   }, [myGiftStickers, uniqueOwnedStandard, myAiStickers]);
 
-  // Reduced items per page to fit without scrolling on standard laptops
-  const ITEMS_PER_PAGE = 9; 
+  const ITEMS_PER_PAGE = 6; 
   const totalPages = Math.max(1, Math.ceil(allCollectedStickers.length / ITEMS_PER_PAGE));
   
   useEffect(() => {
@@ -164,20 +139,125 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   }, [totalPages, allCollectedStickers.length]);
 
   const currentBookStickers = allCollectedStickers.slice(bookPage * ITEMS_PER_PAGE, (bookPage + 1) * ITEMS_PER_PAGE);
+  const pageCategories = Array.from(new Set(currentBookStickers.map(s => s.category)));
+  const pageTheme = pageCategories.length === 1 ? pageCategories[0] : pageCategories.length === 0 ? "Empty" : "Mixed Collection";
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-6 animate-fade-in bg-indigo-500/20 backdrop-blur-lg font-nunito">
-        <div className="w-full max-w-5xl h-full md:h-[90vh] bg-[#f8fafc] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden relative border-4 border-white">
+  const toggleView = () => {
+      if (activeTab === 'CATALOG') {
+          // Go to Book (Closed initially to show cover effect)
+          setActiveTab('COLLECTION');
+          setIsBookOpen(false);
+      } else {
+          // Go to Store (Grid view)
+          setActiveTab('CATALOG');
+      }
+  };
+
+  // --- RENDER COVER (ONLY IF IN COLLECTION MODE AND NOT OPEN) ---
+  if (activeTab === 'COLLECTION' && !isBookOpen) {
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-indigo-900/60 backdrop-blur-md animate-fade-in font-nunito">
+            <div 
+                onClick={handleOpenBook}
+                className={`
+                    relative w-full max-w-md aspect-[3/4] rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] 
+                    cursor-pointer transform transition-all duration-700 ease-in-out group hover:-translate-y-2 hover:shadow-[0_35px_60px_-15px_rgba(0,0,0,0.6)]
+                    flex flex-col overflow-hidden border-r-8 border-b-8 border-red-950
+                    ${isOpening ? 'scale-110 opacity-0 rotate-y-180' : 'scale-100 opacity-100'}
+                `}
+                style={{
+                    backgroundColor: '#7f1d1d', // Red-900 base
+                    backgroundImage: `
+                        linear-gradient(90deg, rgba(0,0,0,0.3) 0%, rgba(255,255,255,0.1) 10%, rgba(0,0,0,0) 15%),
+                        url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E")
+                    `
+                }}
+            >
+                <div className="absolute top-0 bottom-0 left-0 w-12 bg-gradient-to-r from-red-950 to-red-800 border-r border-red-950/50 z-10 flex flex-col justify-center items-center gap-4">
+                    <div className="w-full h-[2px] bg-yellow-600/50"></div>
+                    <div className="w-full h-[2px] bg-yellow-600/50"></div>
+                    <div className="w-full h-[2px] bg-yellow-600/50"></div>
+                </div>
+
+                <div className="flex-1 ml-12 p-8 flex flex-col items-center justify-between border-l border-white/10 h-full relative">
+                    <div className="absolute inset-6 ml-14 border-4 border-yellow-500/60 rounded-xl pointer-events-none">
+                        <div className="absolute inset-1 border border-yellow-500/30 rounded-lg"></div>
+                        <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-yellow-500 rounded-tl-lg"></div>
+                        <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-yellow-500 rounded-tr-lg"></div>
+                        <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-yellow-500 rounded-bl-lg"></div>
+                        <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-yellow-500 rounded-br-lg"></div>
+                    </div>
+
+                    <div className="mt-12 text-center z-10">
+                        <h1 className="font-serif-sc text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-yellow-200 via-yellow-400 to-yellow-600 drop-shadow-sm tracking-widest mb-2">
+                            STICKER
+                        </h1>
+                        <h2 className="font-serif-sc text-3xl font-bold text-yellow-600/80 tracking-widest uppercase">
+                            Collection
+                        </h2>
+                    </div>
+
+                    <div className="w-32 h-32 bg-red-950/30 rounded-full flex items-center justify-center border-4 border-yellow-500/40 shadow-inner z-10">
+                        <span className="text-6xl filter drop-shadow-lg grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-500">🏆</span>
+                    </div>
+
+                    <div className="mb-12 text-center z-10">
+                        <div className="bg-black/20 px-6 py-2 rounded-lg backdrop-blur-sm border border-white/10">
+                            <p className="text-yellow-100 font-bold font-mono tracking-widest text-sm uppercase">Property of</p>
+                            <p className="text-white font-black text-xl tracking-wide">{student.name}</p>
+                        </div>
+                        <p className="text-yellow-600/60 text-[10px] mt-4 font-bold uppercase tracking-[0.2em]">Tap to Open</p>
+                    </div>
+                </div>
+            </div>
             
+            <button 
+                onClick={onClose}
+                className="absolute top-6 right-6 w-12 h-12 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white font-bold backdrop-blur-sm transition-all border border-white/20"
+            >
+                ✕
+            </button>
+        </div>
+      );
+  }
+
+  // --- RENDER MAIN VIEW (STORE OR OPEN BOOK) ---
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-6 animate-fade-in bg-indigo-900/60 backdrop-blur-lg font-nunito">
+        <div className="w-full max-w-5xl h-full md:h-[90vh] bg-[#f8fafc] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden relative border-4 border-white transition-all duration-500 animate-slide-up">
+            
+            {/* BOOKMARK - Toggles between Store and Book */}
+            <div 
+                onClick={toggleView}
+                className="absolute top-0 right-12 z-50 cursor-pointer group transition-all duration-300 hover:-translate-y-1"
+                title={activeTab === 'CATALOG' ? "Open My Book" : "Go to Store"}
+            >
+                <div className="w-12 h-32 bg-rose-600 shadow-lg rounded-b-lg relative border-x-2 border-b-2 border-rose-800 flex flex-col items-center justify-end pb-4 transition-all group-hover:h-36 group-hover:bg-rose-500">
+                    <div className="absolute top-0 inset-x-0 h-4 bg-black/20"></div>
+                    <div className="absolute inset-x-1 bottom-2 top-0 border-x border-dashed border-white/30"></div>
+                    
+                    <span className="text-white font-black text-xs uppercase tracking-widest vertical-text drop-shadow-md select-none" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+                        {activeTab === 'CATALOG' ? 'MY BOOK' : 'STORE'}
+                    </span>
+                    <div className="w-8 h-8 bg-white/20 rounded-full mt-2 flex items-center justify-center text-lg shadow-inner">
+                        {activeTab === 'CATALOG' ? '📖' : '🛍️'}
+                    </div>
+                </div>
+            </div>
+
             {/* Header */}
             <div className="bg-white p-6 flex flex-col md:flex-row justify-between items-center gap-4 z-20 shadow-sm border-b border-slate-100 shrink-0 relative">
                 <div className="flex items-center gap-4 w-full md:w-auto relative z-10">
-                    <Button variant="ghost" onClick={onClose} className="shrink-0 aspect-square w-12 h-12 rounded-full bg-slate-50 hover:bg-slate-200 flex items-center justify-center p-0 text-slate-500">
-                        <span className="text-2xl">✕</span>
+                    <Button variant="ghost" onClick={onClose} className="shrink-0 aspect-square w-12 h-12 rounded-full bg-slate-50 hover:bg-slate-200 flex items-center justify-center p-0 text-slate-500 border border-slate-200">
+                        <span className="text-2xl font-bold">✕</span>
                     </Button>
                     <div>
-                        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Sticker Shop</h2>
-                        <p className="text-slate-400 font-bold text-xs uppercase tracking-wider">Customize your profile</p>
+                        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                            {activeTab === 'CATALOG' ? 'Sticker Shop' : 'My Album'}
+                        </h2>
+                        <p className="text-slate-400 font-bold text-xs uppercase tracking-wider">
+                            {activeTab === 'CATALOG' ? 'Spend your points' : 'Your Collection'}
+                        </p>
                     </div>
                 </div>
                 
@@ -185,41 +265,19 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                     <span className="text-2xl drop-shadow-sm">⭐</span>
                     <span className="text-3xl tracking-wide drop-shadow-sm">{student.points}</span>
                 </div>
-
-                {/* Decorative Background for Header */}
-                <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-50/50 to-transparent pointer-events-none"></div>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div className="px-6 py-4 bg-white/80 backdrop-blur-md sticky top-0 z-10 shrink-0 border-b border-slate-100">
-                <div className="bg-slate-100 p-1.5 rounded-2xl flex font-bold text-slate-500 max-w-lg mx-auto">
-                    <button 
-                        onClick={() => setActiveTab('CATALOG')}
-                        className={`flex-1 py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm ${activeTab === 'CATALOG' ? 'bg-white text-indigo-600 shadow-sm scale-[1.02] ring-1 ring-black/5' : 'hover:bg-slate-200/50 hover:text-slate-600'}`}
-                    >
-                        <span className="text-xl">🛍️</span> Catalog
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('COLLECTION')}
-                        className={`flex-1 py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm ${activeTab === 'COLLECTION' ? 'bg-white text-emerald-600 shadow-sm scale-[1.02] ring-1 ring-black/5' : 'hover:bg-slate-200/50 hover:text-slate-600'}`}
-                    >
-                        <span className="text-xl">📖</span> Sticker Book
-                    </button>
-                </div>
             </div>
 
             {/* Main Content Area */}
-            {/* Logic change: COLLECTION tab has no scroll to fit book on screen */}
-            <div className={`flex-1 w-full relative ${activeTab === 'COLLECTION' ? 'overflow-hidden flex flex-col justify-center bg-slate-100' : 'overflow-y-auto px-6 pb-40 pt-6 scroll-smooth bg-slate-50/50'}`}>
+            <div className={`flex-1 w-full relative overflow-hidden flex flex-col ${activeTab === 'COLLECTION' ? 'bg-[#2c3e50]' : 'bg-slate-50'}`}>
                 
-                {errorMsg && activeTab !== 'COLLECTION' && (
-                    <div className="mb-6 p-4 bg-rose-50 text-rose-600 rounded-2xl font-bold text-center border border-rose-100 animate-bounce-in shadow-sm">
+                {errorMsg && (
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-rose-50 text-rose-600 rounded-full font-bold text-sm border border-rose-200 shadow-lg animate-bounce-in">
                         {errorMsg}
                     </div>
                 )}
                 
                 {activeTab === 'CATALOG' && (
-                    <>
+                    <div className="flex-1 overflow-y-auto px-6 pb-40 pt-6 scroll-smooth">
                         {loadingStore ? (
                             <div className="flex flex-col items-center justify-center py-20 opacity-50">
                                 <div className="text-6xl animate-bounce mb-4">🏬</div>
@@ -235,7 +293,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                 ) : (
                                     <>
                                         {/* Categories */}
-                                        <div className="flex gap-2 overflow-x-auto pb-2 mb-6 no-scrollbar snap-x">
+                                        <div className="flex gap-2 overflow-x-auto pb-2 mb-6 no-scrollbar snap-x sticky top-0 bg-slate-50/95 backdrop-blur-sm py-2 z-30">
                                             {dynamicCategories.map(cat => (
                                                  <button 
                                                     key={cat}
@@ -243,7 +301,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                                     className={`
                                                         whitespace-nowrap px-5 py-2.5 rounded-full font-bold text-sm transition-all border-2 snap-center
                                                         ${selectedCategory === cat 
-                                                            ? 'bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-200' 
+                                                            ? 'bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-200 scale-105' 
                                                             : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200 hover:text-indigo-500'
                                                         }
                                                     `}
@@ -274,7 +332,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
 
                                                         return (
                                                             <div key={item.id} className={`
-                                                                relative bg-white rounded-[2rem] p-4 flex flex-col items-center transition-all duration-300 group
+                                                                relative bg-white rounded-[2rem] p-3 flex flex-col items-center transition-all duration-300 group
                                                                 ${isOwned 
                                                                     ? 'border-4 border-emerald-100 shadow-none opacity-80' 
                                                                     : 'border-2 border-slate-100 hover:border-indigo-200 hover:shadow-xl hover:-translate-y-1'
@@ -338,193 +396,78 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                 )}
                             </div>
                         )}
-                    </>
-                )}
-
-                {/* STICKER BOOK VIEW */}
-                {activeTab === 'COLLECTION' && (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-4">
-                        
-                        {!isBookOpen ? (
-                            // --- BOOK COVER ---
-                            <div 
-                                className="relative bg-gradient-to-br from-indigo-900 via-indigo-800 to-indigo-900 rounded-r-3xl rounded-l-lg shadow-[15px_15px_30px_rgba(0,0,0,0.4)] w-[320px] sm:w-[400px] h-[500px] sm:h-[600px] flex flex-col items-center justify-center text-center cursor-pointer transform hover:scale-[1.02] hover:-rotate-1 transition-all duration-500 border-l-[16px] border-indigo-950 group perspective-1000"
-                                onClick={() => setIsBookOpen(true)}
-                            >
-                                {/* Leather Texture Effect */}
-                                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z\' fill=\'%23000000\' fill-opacity=\'0.2\' fill-rule=\'evenodd\'/%3E%3C/svg%3E")' }}></div>
-                                
-                                {/* Border Inlay */}
-                                <div className="absolute top-6 bottom-6 left-8 right-6 border-2 border-amber-400/30 rounded-r-lg rounded-l-sm pointer-events-none"></div>
-
-                                <div className="z-10 flex flex-col items-center gap-6">
-                                    <div className="w-24 h-24 bg-amber-400 rounded-full flex items-center justify-center text-5xl shadow-lg border-4 border-amber-200">
-                                        ⭐
-                                    </div>
-                                    <div className="font-serif-sc text-amber-100 text-center px-4">
-                                        <h2 className="text-4xl font-bold mb-2 drop-shadow-md">Sticker Book</h2>
-                                        <p className="text-xl font-medium text-amber-200/80">{student.name}</p>
-                                    </div>
-                                    <div className="mt-8 px-6 py-2 bg-white/10 rounded-full border border-white/20 text-white font-bold text-sm tracking-widest uppercase hover:bg-white/20 transition-colors">
-                                        Click to Open
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            // --- OPEN PAGES ---
-                            <div 
-                                className="flex flex-col items-center w-full h-full max-h-[85vh] cursor-zoom-out animate-fade-in"
-                                onClick={(e) => {
-                                    // Clicking outside the book area closes it
-                                    if(e.target === e.currentTarget) setIsBookOpen(false);
-                                }}
-                            >
-                                {/* Controls Header */}
-                                <div className="w-full max-w-4xl flex justify-between items-center mb-4 px-2 shrink-0 cursor-auto" onClick={e => e.stopPropagation()}>
-                                    <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={() => setIsBookOpen(false)}
-                                            className="text-xs font-bold text-white bg-slate-700 hover:bg-slate-800 px-4 py-2 rounded-full transition-all flex items-center gap-1 shadow-md border border-slate-600"
-                                        >
-                                            ← Close Book
-                                        </button>
-                                        <button 
-                                            onClick={handleRefreshCollection}
-                                            disabled={isRefreshing}
-                                            className="text-xs font-bold text-slate-400 hover:bg-white hover:text-indigo-500 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 bg-slate-100"
-                                        >
-                                            {isRefreshing ? <span className="animate-spin">🔄</span> : '🔄'} Sync
-                                        </button>
-                                    </div>
-                                    {/* Pagination */}
-                                    <div className="flex items-center gap-4 bg-white/90 backdrop-blur rounded-xl px-4 py-2 shadow-sm border border-slate-100">
-                                        <button 
-                                            disabled={bookPage === 0} 
-                                            onClick={() => setBookPage(p => p - 1)}
-                                            className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-100 disabled:opacity-30 disabled:hover:bg-indigo-50 font-bold transition-colors"
-                                        >
-                                            ←
-                                        </button>
-                                        <span className="font-mono font-bold text-slate-600 text-sm">
-                                            Page {bookPage + 1} <span className="text-slate-300">/</span> {totalPages}
-                                        </span>
-                                        <button 
-                                            disabled={bookPage >= totalPages - 1} 
-                                            onClick={() => setBookPage(p => p + 1)}
-                                            className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-100 disabled:opacity-30 disabled:hover:bg-indigo-50 font-bold transition-colors"
-                                        >
-                                            →
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* THE BOOK PAGES */}
-                                <div 
-                                    className="relative bg-gradient-to-r from-indigo-900 to-slate-800 p-2 sm:p-3 rounded-r-[1.5rem] rounded-l-md shadow-2xl max-w-4xl w-full perspective-1000 border-l-[12px] border-l-slate-900 flex-1 flex flex-col overflow-hidden max-h-[700px] cursor-default"
-                                    onClick={e => e.stopPropagation()} // Stop closing when clicking book
-                                >
-                                    
-                                    {/* Inner Pages */}
-                                    <div className="bg-[#fdfbf6] rounded-r-[1rem] rounded-l-sm shadow-inner flex-1 flex flex-col border-r-4 border-b-4 border-[#e6e2d3] relative overflow-hidden">
-                                        
-                                        {/* Binder Holes Visual */}
-                                        <div className="absolute left-0 top-0 bottom-0 w-8 sm:w-10 bg-gradient-to-r from-stone-200 to-[#fdfbf6] border-r border-dashed border-stone-300 flex flex-col justify-evenly py-8 z-20">
-                                            {[...Array(5)].map((_, i) => (
-                                                <div key={i} className="w-full h-4 relative flex items-center justify-center">
-                                                    <div className="w-3 h-3 bg-stone-800 rounded-full shadow-inner ring-1 ring-white/50"></div>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {/* Page Content Container */}
-                                        <div className="flex-1 ml-8 sm:ml-10 p-4 sm:p-6 flex flex-col h-full">
-                                            {/* Page Title */}
-                                            <div className="flex justify-between items-end border-b-2 border-dashed border-indigo-100/50 pb-2 mb-4 shrink-0">
-                                                <h3 className="font-serif-sc font-bold text-2xl text-indigo-900/40 select-none">
-                                                    My Collection
-                                                </h3>
-                                                <div className="text-2xl opacity-20 grayscale">✨</div>
-                                            </div>
-
-                                            {/* Stickers Grid - Fixed Layout */}
-                                            {allCollectedStickers.length === 0 ? (
-                                                <div className="flex-1 flex flex-col items-center justify-center opacity-40">
-                                                    <div className="text-6xl mb-4">📖</div>
-                                                    <p className="font-bold text-slate-400">This page is intentionally left blank.</p>
-                                                    <Button size="sm" variant="ghost" className="mt-4" onClick={() => setActiveTab('CATALOG')}>Get Stickers</Button>
-                                                </div>
-                                            ) : (
-                                                <div className="grid grid-cols-3 grid-rows-3 gap-4 h-full w-full">
-                                                    {/* Render 9 items per page (3x3) to fit perfectly without scrolling */}
-                                                    {[...Array(ITEMS_PER_PAGE)].map((_, i) => {
-                                                        const item = currentBookStickers[i];
-                                                        
-                                                        if (!item) {
-                                                            // Empty Slot
-                                                            return (
-                                                                <div key={`empty-${i}`} className="w-full h-full border-2 border-dashed border-stone-200 rounded-xl flex items-center justify-center opacity-20 select-none">
-                                                                    <span className="text-2xl text-stone-300">＋</span>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        const displayImage = convertDriveLink(item.imageUrl || item.dataUrl);
-                                                        // Randomize rotation slightly for effect (stable based on actual index in full list)
-                                                        const globalIndex = (bookPage * ITEMS_PER_PAGE) + i;
-                                                        const rotate = [-2, 1, -1, 2, 0][globalIndex % 5];
-                                                        
-                                                        return (
-                                                            <div 
-                                                                key={`${item.id}-${i}`}
-                                                                onClick={() => setPreviewItem(item)}
-                                                                className="relative cursor-pointer transition-transform hover:scale-110 hover:z-10 group flex items-center justify-center p-2"
-                                                                style={{ transform: `rotate(${rotate}deg)` }}
-                                                            >
-                                                                {/* Sticker Image */}
-                                                                {item.imageUrl || item.dataUrl ? (
-                                                                    <img 
-                                                                        src={displayImage} 
-                                                                        alt={item.name} 
-                                                                        className="max-w-full max-h-full object-contain filter drop-shadow-md hover:drop-shadow-xl transition-all"
-                                                                    />
-                                                                ) : (
-                                                                    <div className="w-full h-full flex items-center justify-center text-5xl drop-shadow-md">
-                                                                        {(item as any).emoji}
-                                                                    </div>
-                                                                )}
-
-                                                                {/* Type Badge (Only appears on hover) */}
-                                                                {item._type === 'GIFT' && (
-                                                                    <div className="absolute -top-1 -right-1 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-20">Gift</div>
-                                                                )}
-                                                                {item._type === 'AI' && (
-                                                                    <div className="absolute -top-1 -right-1 bg-purple-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-20">AI</div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                        
-                                        {/* Page Number Footer */}
-                                        <div className="absolute bottom-2 right-6 text-[10px] font-bold text-stone-400 font-mono select-none">
-                                            {bookPage + 1}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-2 text-slate-400 font-bold text-xs uppercase tracking-widest animate-pulse pointer-events-none">
-                                    Click outside to close
-                                </div>
-                            </div>
-                        )}
                     </div>
                 )}
 
-                {/* AI Lab Tab Logic Preserved but Hidden via UI unless manually enabled */}
-                {activeTab === 'AI_LAB' && (
-                    <div className="max-w-lg mx-auto pb-32">
-                        {/* ... Existing AI Lab Logic ... */}
+                {/* STICKER BOOK VIEW (COLLECTION) */}
+                {activeTab === 'COLLECTION' && (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-2 relative">
+                        {/* Background Wood Texture */}
+                        <div className="absolute inset-0 bg-[#2c3e50] opacity-100" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #34495e 25%, transparent 25%, transparent 75%, #34495e 75%, #34495e), repeating-linear-gradient(45deg, #34495e 25%, #2c3e50 25%, #2c3e50 75%, #34495e 75%, #34495e)', backgroundPosition: '0 0, 10px 10px', backgroundSize: '20px 20px' }}></div>
+
+                        {/* Controls */}
+                        <div className="w-full max-w-4xl flex justify-between items-center mb-2 px-4 z-20">
+                            <button 
+                                onClick={handleRefreshCollection}
+                                disabled={isRefreshing}
+                                className="text-xs font-bold text-slate-300 hover:text-white flex items-center gap-1 bg-black/20 px-3 py-1.5 rounded-lg backdrop-blur-sm border border-white/10"
+                            >
+                                {isRefreshing ? <span className="animate-spin">🔄</span> : '🔄'} Sync
+                            </button>
+                            
+                            <div className="flex items-center gap-4 bg-black/30 backdrop-blur rounded-full px-4 py-1.5 shadow-lg border border-white/10 text-white">
+                                <button disabled={bookPage === 0} onClick={() => setBookPage(p => p - 1)} className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold">←</button>
+                                <span className="font-mono font-bold text-sm">{bookPage + 1} / {totalPages}</span>
+                                <button disabled={bookPage >= totalPages - 1} onClick={() => setBookPage(p => p + 1)} className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold">→</button>
+                            </div>
+                        </div>
+
+                        {/* THE OPEN BOOK */}
+                        <div className="relative bg-[#fdfbf7] w-full max-w-4xl aspect-[4/3] max-h-[75vh] rounded-r-2xl rounded-l-md shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex overflow-hidden border-r-8 border-b-8 border-[#e3dccb]">
+                            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black/20 to-transparent z-20 pointer-events-none"></div>
+                            <div className="absolute inset-0 opacity-40 pointer-events-none z-0" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E")` }}></div>
+
+                            <div className="flex-1 p-6 sm:p-10 flex flex-col relative z-10 ml-4">
+                                <div className="flex justify-between items-center border-b-2 border-stone-200 pb-3 mb-6">
+                                    <div>
+                                        <h3 className="font-serif-sc font-bold text-2xl text-stone-700 tracking-wide">{pageTheme} Collection</h3>
+                                        <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Page {bookPage + 1}</p>
+                                    </div>
+                                    <div className="text-3xl opacity-20 grayscale">{pageTheme === 'Animals' ? '🐾' : pageTheme === 'Food' ? '🍔' : '✨'}</div>
+                                </div>
+
+                                <div className="grid grid-cols-3 grid-rows-2 gap-6 h-full w-full">
+                                    {[...Array(ITEMS_PER_PAGE)].map((_, i) => {
+                                        const item = currentBookStickers[i];
+                                        if (!item) return <div key={`empty-${i}`} className="w-full h-full border-2 border-dashed border-stone-200 rounded-lg flex items-center justify-center"><span className="text-stone-300 font-black text-2xl opacity-50">+</span></div>;
+
+                                        const displayImage = convertDriveLink(item.imageUrl || item.dataUrl);
+                                        const rotate = [-2, 1.5, -1, 2, -1.5, 1][(bookPage * 6 + i) % 6];
+                                        
+                                        return (
+                                            <div 
+                                                key={`${item.id}-${i}`}
+                                                onClick={() => setPreviewItem(item)}
+                                                className="relative cursor-pointer group flex items-center justify-center p-2 transition-transform duration-300 hover:scale-105 hover:z-20"
+                                                style={{ transform: `rotate(${rotate}deg)` }}
+                                            >
+                                                <div className="bg-white p-3 pb-8 shadow-md border border-stone-200 w-full h-full flex flex-col items-center transform transition-shadow group-hover:shadow-2xl">
+                                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-8 bg-white/40 backdrop-blur-sm border-l border-r border-white/60 shadow-sm transform -rotate-1 z-10 opacity-70"></div>
+                                                    <div className="flex-1 w-full bg-stone-100 overflow-hidden flex items-center justify-center relative border border-stone-100">
+                                                        {item.imageUrl || item.dataUrl ? (
+                                                            <img src={displayImage} alt={item.name} className="max-w-full max-h-full object-contain" />
+                                                        ) : (
+                                                            <div className="text-5xl">{(item as any).emoji}</div>
+                                                        )}
+                                                    </div>
+                                                    <div className="absolute bottom-2 left-0 right-0 text-center font-serif-sc text-stone-600 font-bold text-xs truncate px-2">{item.name}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
@@ -535,44 +478,13 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
             <div className="fixed inset-0 z-[120] flex items-center justify-center bg-indigo-500/20 backdrop-blur-lg p-6 animate-fade-in" onClick={() => setPreviewItem(null)}>
                 <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full relative shadow-2xl flex flex-col items-center text-center animate-bounce-in border-4 border-white/20" onClick={e => e.stopPropagation()}>
                     <button onClick={() => setPreviewItem(null)} className="absolute top-6 right-6 w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200 text-xl transition-colors">✕</button>
-                    
                     <h3 className="text-2xl font-extrabold text-slate-800 mb-2 mt-4">{previewItem.name || previewItem.prompt || 'Sticker Preview'}</h3>
                     <div className="w-16 h-1 bg-indigo-100 rounded-full mb-8"></div>
-                    
-                    {(() => {
-                        const isOwned = ownedIds.includes(previewItem.id) || !!previewItem.studentId; 
-                        return (
-                            <div className="w-full aspect-square bg-slate-50 rounded-[2rem] flex items-center justify-center mb-8 relative border-4 border-slate-100 p-8 shadow-inner">
-                                {/* Checkered Background for Transparency */}
-                                <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '16px 16px' }}></div>
-
-                                {previewItem.imageUrl || previewItem.dataUrl ? (
-                                    <img 
-                                        src={convertDriveLink(previewItem.imageUrl || previewItem.dataUrl)} 
-                                        alt="Preview" 
-                                        className={`w-full h-full object-contain filter drop-shadow-xl ${!isOwned ? 'blur-[8px] grayscale opacity-50' : ''}`} 
-                                    />
-                                ) : (
-                                    <div className="text-9xl drop-shadow-2xl">{(previewItem as any).emoji}</div>
-                                )}
-                                
-                                {!isOwned && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                                        <div className="bg-white/90 backdrop-blur rounded-full w-20 h-20 flex items-center justify-center shadow-lg mb-2">
-                                            <span className="text-5xl">🔒</span>
-                                        </div>
-                                        <span className="bg-rose-500 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-lg">Locked</span>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })()}
-
-                    {previewItem.category && (
-                        <span className="px-4 py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs font-black uppercase tracking-widest">
-                            {previewItem.category}
-                        </span>
-                    )}
+                    <div className="w-full aspect-square bg-slate-50 rounded-[2rem] flex items-center justify-center mb-8 relative border-4 border-slate-100 p-8 shadow-inner">
+                        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '16px 16px' }}></div>
+                        {previewItem.imageUrl || previewItem.dataUrl ? <img src={convertDriveLink(previewItem.imageUrl || previewItem.dataUrl)} alt="Preview" className="w-full h-full object-contain filter drop-shadow-xl" /> : <div className="text-9xl drop-shadow-2xl">{(previewItem as any).emoji}</div>}
+                    </div>
+                    {previewItem.category && <span className="px-4 py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs font-black uppercase tracking-widest">{previewItem.category}</span>}
                 </div>
             </div>
         )}

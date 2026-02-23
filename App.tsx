@@ -50,6 +50,7 @@ const App: React.FC = () => {
 
   // Config State
   const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
+  const [dictionary, setDictionary] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
 
   // Check configuration on load
   useEffect(() => {
@@ -178,6 +179,7 @@ const App: React.FC = () => {
         }
         // Refresh rules
         setRewardRules(await sheetService.getRewardRules(true));
+        setDictionary(await sheetService.getFullDictionary(true));
       } catch (e) {
         console.error("Failed to refresh user data", e);
       }
@@ -241,6 +243,8 @@ const App: React.FC = () => {
                 // Force fetch rules
                 const rules = await sheetService.getRewardRules(true);
                 setRewardRules(rules);
+                const dict = await sheetService.getFullDictionary(true);
+                setDictionary(dict);
                 setCurrentView(AppView.DASHBOARD);
             }
          }
@@ -604,7 +608,24 @@ const App: React.FC = () => {
                  <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col items-center w-full max-w-md">
                      <div className="mb-4 text-center">
                          <h3 className="text-slate-400 font-bold text-xs uppercase mb-1">Write the Character</h3>
-                         <p className="text-slate-500 font-bold text-sm">Follow the strokes. Click 'Watch' for help.</p>
+                         <p className="text-slate-500 font-bold text-sm mb-3">Follow the strokes. Click 'Watch' for help.</p>
+                         {dictionary[char] && (
+                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center gap-2 mb-2">
+                                 <div className="flex items-center gap-2">
+                                     <span className="text-xl font-bold text-indigo-600">{dictionary[char].pinyin}</span>
+                                     {dictionary[char].audio && (
+                                         <button 
+                                             onClick={() => new Audio(dictionary[char].audio).play()}
+                                             className="p-1.5 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-200 transition-colors"
+                                             title="Play Audio"
+                                         >
+                                             🔊
+                                         </button>
+                                     )}
+                                 </div>
+                                 <span className="text-sm text-slate-600 font-medium text-center">{dictionary[char].definition}</span>
+                             </div>
+                         )}
                      </div>
                      
                      <HanziPlayer 

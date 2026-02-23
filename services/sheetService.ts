@@ -212,7 +212,20 @@ export const sheetService = {
   },
 
   async getFullDictionary(forceRefresh = false): Promise<Record<string, {pinyin: string, definition: string, audio: string}>> {
-      if (this.isDemoMode()) return {};
+      if (this.isDemoMode()) {
+          return {
+              '我': { pinyin: 'wǒ', definition: 'I, me', audio: '' },
+              '你': { pinyin: 'nǐ', definition: 'you', audio: '' },
+              '好': { pinyin: 'hǎo', definition: 'good, well', audio: '' },
+              '是': { pinyin: 'shì', definition: 'is, are, am, to be', audio: '' },
+              '不': { pinyin: 'bù', definition: 'not, no', audio: '' },
+              '人': { pinyin: 'rén', definition: 'person, people', audio: '' },
+              '大': { pinyin: 'dà', definition: 'big, large', audio: '' },
+              '小': { pinyin: 'xiǎo', definition: 'small, little', audio: '' },
+              '中': { pinyin: 'zhōng', definition: 'middle, center', audio: '' },
+              '国': { pinyin: 'guó', definition: 'country, nation', audio: '' }
+          };
+      }
       const cacheKey = 'full_dictionary';
       if (!forceRefresh) { const cached = getFromCache<any>(cacheKey); if (cached) return cached; }
       
@@ -261,6 +274,19 @@ export const sheetService = {
           const items = data.items || [];
           setCache(cacheKey, items);
           return items;
+      } catch(e) { console.error(e); return []; }
+  },
+
+  async getPurchaseReport(): Promise<{ date: string, studentName: string, stickerId: string, cost: number }[]> {
+      if (this.isDemoMode()) return [
+          { date: new Date().toISOString(), studentName: 'Demo Student', stickerId: 'store-1', cost: 100 },
+          { date: new Date(Date.now()-86400000).toISOString(), studentName: 'Demo Student', stickerId: 'store-2', cost: 50 }
+      ];
+      const url = this.getUrl(); if (!url) return [];
+      try {
+          const response = await fetchWithRetry(`${url}?action=getPurchaseReport&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
+          const data = await parseResponse(response);
+          return data.purchases || [];
       } catch(e) { console.error(e); return []; }
   },
 

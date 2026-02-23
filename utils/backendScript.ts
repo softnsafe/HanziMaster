@@ -218,6 +218,7 @@ function doGet(e) {
       else if (action === 'getRecentGoalContributions') return getRecentGoalContributions();
       else if (action === 'getRewardRules') return getRewardRules();
       else if (action === 'getDictionary') return getDictionary();
+      else if (action === 'getPurchaseReport') return getPurchaseReport();
       return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (err) { return response({status: 'error', message: err.toString()}); }
 }
@@ -268,6 +269,45 @@ function doPost(e) {
 function response(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
 
 // --- FEATURE FUNCTIONS ---
+
+function getPurchaseReport() {
+  const ss = getSpreadsheet();
+  const logSheet = ss.getSheetByName('PointLogs');
+  const studentSheet = ss.getSheetByName('Students');
+  
+  if (!logSheet || !studentSheet) return response({ purchases: [] });
+  
+  const logData = logSheet.getDataRange().getValues();
+  const studentData = studentSheet.getDataRange().getValues();
+  
+  // Create Student Map (ID -> Name)
+  const studentMap = {};
+  for(let i = 1; i < studentData.length; i++) {
+      studentMap[String(studentData[i][0])] = String(studentData[i][1]);
+  }
+  
+  const purchases = [];
+  
+  // Scan logs
+  // Headers: Timestamp, StudentID, Delta, Reason, Balance
+  for (let i = logData.length - 1; i >= 1; i--) {
+      const reason = String(logData[i][3] || "");
+      if (reason.startsWith("Bought sticker:")) {
+          const stickerId = reason.split(":")[1].trim();
+          const studentId = String(logData[i][1]);
+          const cost = Math.abs(Number(logData[i][2]));
+          
+          purchases.push({
+              date: logData[i][0],
+              studentName: studentMap[studentId] || "Unknown",
+              stickerId: stickerId,
+              cost: cost
+          });
+      }
+  }
+  
+  return response({ purchases: purchases });
+}
 
 function addStudent(payload) {
     const ss = getSpreadsheet();

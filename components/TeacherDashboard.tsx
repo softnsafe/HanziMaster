@@ -4,8 +4,9 @@ import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, ContributionLog, RewardRule, Sticker } from '../types';
 import { CalendarView } from './CalendarView';
-import { generateSticker } from '../services/geminiService';
+import { generateSticker, generateDictionaryEntry } from '../services/geminiService';
 import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
+import { playAudioUrl } from '../services/geminiService';
 import { parseLocalDate } from '../utils/dateUtils';
 
 interface TeacherDashboardProps {
@@ -135,6 +136,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [dictDef, setDictDef] = useState('');
   const [dictAudio, setDictAudio] = useState('');
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [altScript, setAltScript] = useState<{simp: string, trad: string} | null>(null); // New state for script preview
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Rewards Tab State
@@ -148,6 +150,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [activeGoals, setActiveGoals] = useState<ClassGoal[]>([]);
   const [recentContributions, setRecentContributions] = useState<ContributionLog[]>([]);
   const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
+  
+  // Sales Report State
+  const [showSalesReport, setShowSalesReport] = useState(false);
+  const [salesData, setSalesData] = useState<{date: string, studentName: string, stickerId: string, cost: number}[]>([]);
+  const [loadingSales, setLoadingSales] = useState(false);
 
   // Calendar State
   const [calEventId, setCalEventId] = useState<string | null>(null);
@@ -237,6 +244,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           setDictionary(dict);
       }
       setIsLoadingData(false);
+  };
+
+  const loadSalesReport = async () => {
+      setLoadingSales(true);
+      setShowSalesReport(true);
+      const data = await sheetService.getPurchaseReport();
+      setSalesData(data);
+      setLoadingSales(false);
   };
 
   const handleToggleClassStatus = async () => {
@@ -383,6 +398,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       reader.readAsDataURL(file);
   };
 
+  const handleAutoFill = async () => {
+      if (!dictChar) return;
+      setIsSubmitting(true);
+      setAltScript(null);
+      try {
+          const data = await generateDictionaryEntry(dictChar);
+          if (data) {
+              setDictPinyin(data.pinyin);
+              setDictDef(data.definition);
+              // Auto-set audio path if not present. Use lowercased clean pinyin.
+              if (!dictAudio) {
+                  setDictAudio(`/audio/${data.pinyin.toLowerCase().replace(/\s+/g,'')}.mp3`);
+              }
+              setAltScript({ simp: data.simplified, trad: data.traditional });
+              setLastSuccess("AI Data Generated!");
+              setTimeout(() => setLastSuccess(''), 3000);
+          } else {
+              setLastError("AI Generation Failed");
+              setTimeout(() => setLastError(''), 3000);
+          }
+      } catch(e: any) {
+          setLastError("Error: " + e.message);
+      }
+      setIsSubmitting(false);
+  };
+
   const handleAddToDictionary = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!dictChar) return;
@@ -395,7 +436,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       });
       if (result.success) {
           setLastSuccess("Added to Dictionary!");
-          setDictChar(''); setDictPinyin(''); setDictDef(''); setDictAudio('');
+          setDictChar(''); setDictPinyin(''); setDictDef(''); setDictAudio(''); setAltScript(null);
           if (fileInputRef.current) fileInputRef.current.value = '';
           await loadTabData();
       } else {
@@ -410,12 +451,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       await loadTabData();
   };
 
-  const handleTestAudio = () => {
+  const handleTestAudio = async () => {
       if (!dictAudio) return;
       try {
           const url = dictAudio.startsWith('/') ? dictAudio : convertAudioDriveLink(dictAudio);
-          const audio = new Audio(url);
-          audio.play().catch(e => alert("Audio Play Error: " + e.message));
+          const success = await playAudioUrl(url);
+          if (!success) {
+              alert("Audio Play Error: Could not play audio from " + url);
+          }
       } catch (e: any) {
           alert("Invalid URL: " + e.message);
       }
@@ -625,10 +668,149 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
     )
   }
 
+  // --- SALES REPORT RENDERER ---
+  const renderSalesReport = () => {
+      if (!showSalesReport) return null;
+
+      // Group data for stats
+      const totalRevenue = salesData.reduce((acc, curr) => acc + curr.cost, 0);
+      
+      const popularity: Record<string, number> = {};
+      salesData.forEach(p => { popularity[p.stickerId] = (popularity[p.stickerId] || 0) + 1; });
+      
+      const sortedStickers = Object.entries(popularity).sort((a,b) => b[1] - a[1]).slice(0, 5);
+      
+      // Determine category breakdown
+      const categoryCounts: Record<string, number> = {};
+      salesData.forEach(p => {
+          const item = storeItems.find(s => s.id === p.stickerId);
+          const cat = item?.category || 'Misc.';
+          categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+      });
+      const sortedCategories = Object.entries(categoryCounts).sort((a,b) => b[1] - a[1]);
+
+      return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-indigo-900/30 backdrop-blur-md p-4 animate-fade-in" onClick={() => setShowSalesReport(false)}>
+              <div className="bg-white rounded-[2rem] p-8 max-w-4xl w-full h-[85vh] flex flex-col shadow-2xl animate-slide-up border-4 border-white/50" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-6 shrink-0">
+                      <div>
+                          <h3 className="text-3xl font-extrabold text-slate-800">Store Analytics</h3>
+                          <p className="text-slate-400 font-bold">Purchase History & Trends</p>
+                      </div>
+                      <button onClick={() => setShowSalesReport(false)} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 hover:bg-slate-200">✕</button>
+                  </div>
+
+                  {loadingSales ? (
+                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                          <div className="animate-spin text-4xl mb-4">🔄</div>
+                          <div className="font-bold">Crunching Numbers...</div>
+                      </div>
+                  ) : (
+                      <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-3 gap-6">
+                          
+                          {/* Left Col: Stats */}
+                          <div className="space-y-6">
+                              <div className="bg-emerald-50 p-6 rounded-2xl border-2 border-emerald-100">
+                                  <div className="text-sm font-black text-emerald-600 uppercase tracking-wide">Total Sales</div>
+                                  <div className="text-4xl font-extrabold text-emerald-800 mt-2">{salesData.length} Items</div>
+                                  <div className="text-sm font-bold text-emerald-600 mt-1">
+                                      Generating <span className="text-emerald-800">{totalRevenue} Points</span>
+                                  </div>
+                              </div>
+
+                              <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100">
+                                  <div className="text-sm font-black text-slate-400 uppercase tracking-wide mb-4">Top Sellers</div>
+                                  <div className="space-y-3">
+                                      {sortedStickers.map(([id, count], idx) => {
+                                          const item = storeItems.find(s => s.id === id);
+                                          return (
+                                              <div key={id} className="flex items-center gap-3">
+                                                  <div className="font-black text-slate-300 w-4">#{idx+1}</div>
+                                                  <div className="w-8 h-8 bg-white rounded-lg border border-slate-200 flex items-center justify-center shrink-0">
+                                                      {item?.imageUrl ? <img src={convertDriveLink(item.imageUrl)} className="w-full h-full object-contain p-0.5"/> : (item as any)?.emoji || '📦'}
+                                                  </div>
+                                                  <div className="flex-1 truncate text-sm font-bold text-slate-700">{item?.name || id}</div>
+                                                  <div className="text-xs font-black bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">{count}</div>
+                                              </div>
+                                          );
+                                      })}
+                                      {sortedStickers.length === 0 && <div className="text-slate-400 text-sm">No sales yet.</div>}
+                                  </div>
+                              </div>
+
+                              <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100">
+                                  <div className="text-sm font-black text-slate-400 uppercase tracking-wide mb-4">Top Categories</div>
+                                  <div className="flex flex-wrap gap-2">
+                                      {sortedCategories.map(([cat, count]) => (
+                                          <div key={cat} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
+                                              <span className="text-xs font-bold text-slate-600">{cat}</span>
+                                              <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-1.5 rounded-full">{count}</span>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* Right Col: Transaction Log */}
+                          <div className="md:col-span-2 bg-white rounded-2xl border-2 border-slate-100 overflow-hidden flex flex-col">
+                              <div className="bg-slate-50 p-4 border-b border-slate-100 font-bold text-slate-500 text-sm flex justify-between">
+                                  <span>Transaction Log</span>
+                                  <span>{salesData.length} records</span>
+                              </div>
+                              <div className="flex-1 overflow-y-auto">
+                                  <table className="w-full text-left text-sm">
+                                      <thead className="bg-white sticky top-0 z-10 shadow-sm">
+                                          <tr>
+                                              <th className="p-4 font-bold text-slate-400">Date</th>
+                                              <th className="p-4 font-bold text-slate-400">Student</th>
+                                              <th className="p-4 font-bold text-slate-400">Item</th>
+                                              <th className="p-4 font-bold text-slate-400 text-right">Cost</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-50">
+                                          {salesData.map((tx, i) => {
+                                              const item = storeItems.find(s => s.id === tx.stickerId);
+                                              return (
+                                                  <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                                      <td className="p-4 text-slate-500 font-medium whitespace-nowrap">
+                                                          {new Date(tx.date).toLocaleDateString()}
+                                                      </td>
+                                                      <td className="p-4 font-bold text-slate-700">{tx.studentName}</td>
+                                                      <td className="p-4">
+                                                          <div className="flex items-center gap-2">
+                                                              <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center shrink-0">
+                                                                  {item?.imageUrl ? <img src={convertDriveLink(item.imageUrl)} className="w-full h-full object-contain"/> : (item as any)?.emoji || '📦'}
+                                                              </div>
+                                                              <span className="font-bold text-slate-600 truncate max-w-[120px]">{item?.name || tx.stickerId}</span>
+                                                          </div>
+                                                      </td>
+                                                      <td className="p-4 text-right font-black text-amber-500">
+                                                          -{tx.cost}
+                                                      </td>
+                                                  </tr>
+                                              );
+                                          })}
+                                          {salesData.length === 0 && (
+                                              <tr><td colSpan={4} className="p-8 text-center text-slate-400 font-bold">No purchases found.</td></tr>
+                                          )}
+                                      </tbody>
+                                  </table>
+                              </div>
+                          </div>
+
+                      </div>
+                  )}
+              </div>
+          </div>
+      );
+  };
+
   return (
     <div className="max-w-7xl mx-auto animate-fade-in space-y-8 pb-20 font-nunito bg-[#f8fafc] min-h-screen p-6">
       {/* Sticker Modal */}
       {renderStickerPreview()}
+      {/* Sales Report Modal */}
+      {renderSalesReport()}
 
       {/* Top Nav */}
       <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6 sticky top-4 z-40">
@@ -773,7 +955,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
               <div className="lg:col-span-1 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
                   <SectionHeader title="Add Word" subtitle="Build your audio library." />
                   <form onSubmit={handleAddToDictionary} className="space-y-6">
-                      <div><InputLabel label="Character" /><input value={dictChar} onChange={e => setDictChar(e.target.value)} placeholder="e.g. 你好" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-400" required /></div>
+                      <div>
+                          <InputLabel label="Character" />
+                          <div className="flex gap-2">
+                              <input value={dictChar} onChange={e => setDictChar(e.target.value)} placeholder="e.g. 你好" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-indigo-400" required />
+                              <Button type="button" onClick={handleAutoFill} disabled={isSubmitting || !dictChar} variant="secondary" title="Auto-Fill Pinyin, Definition & Audio" className="whitespace-nowrap px-4">
+                                  ✨ Auto-Fill
+                              </Button>
+                          </div>
+                          {altScript && (
+                              <div className="text-xs text-slate-400 font-bold mt-2 bg-slate-50 p-3 rounded-lg border border-slate-100 flex flex-col gap-1 animate-fade-in">
+                                  <div className="flex justify-between"><span>Simplified:</span> <span className="text-slate-600">{altScript.simp}</span></div>
+                                  <div className="flex justify-between"><span>Traditional:</span> <span className="text-slate-600">{altScript.trad}</span></div>
+                              </div>
+                          )}
+                      </div>
                       <div><InputLabel label="Pinyin (Optional)" /><input value={dictPinyin} onChange={e => setDictPinyin(e.target.value)} placeholder="e.g. ni3 hao3" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
                       <div><InputLabel label="Definition (Optional)" /><input value={dictDef} onChange={e => setDictDef(e.target.value)} placeholder="e.g. Hello" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
                       <div>
@@ -815,7 +1011,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                               <div key={char} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center group hover:border-indigo-200 transition-all">
                                   <div><div className="text-2xl font-bold text-slate-800">{char}</div><div className="text-xs font-bold text-slate-400">{data.pinyin} • {data.definition}</div></div>
                                   <div className="flex items-center gap-2">
-                                      {data.audio && <button onClick={() => { const url = data.audio.startsWith('/') ? data.audio : convertAudioDriveLink(data.audio); const a = new Audio(url); a.play(); }} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200" title="Play Audio">🔊</button>}
+                                      {data.audio && <button onClick={() => { const url = data.audio.startsWith('/') ? data.audio : convertAudioDriveLink(data.audio); playAudioUrl(url); }} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200" title="Play Audio">🔊</button>}
                                       <button onClick={() => handleDeleteFromDictionary(char)} className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center hover:bg-rose-200 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">🗑️</button>
                                   </div>
                               </div>
@@ -1043,7 +1239,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                               </form>
                           </div>
                           <div>
-                              <h4 className="font-extrabold text-slate-600 mb-4">Store Inventory ({storeItems.length})</h4>
+                              <div className="flex justify-between items-center mb-4">
+                                  <h4 className="font-extrabold text-slate-600">Store Inventory ({storeItems.length})</h4>
+                                  <Button variant="outline" size="sm" onClick={loadSalesReport} className="text-xs">📊 Sales Stats</Button>
+                              </div>
                               <div className="max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                       {storeItems.map(item => (
