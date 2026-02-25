@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
-import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, ContributionLog, RewardRule, Sticker } from '../types';
+import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, Sticker } from '../types';
 import { CalendarView } from './CalendarView';
-import { generateSticker, generateDictionaryEntry } from '../services/geminiService';
+import { generateDictionaryEntry } from '../services/geminiService';
 import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
 import { playAudioUrl } from '../services/geminiService';
 import { parseLocalDate } from '../utils/dateUtils';
@@ -19,27 +19,7 @@ interface TeacherDashboardProps {
 type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary';
 
 // Client-side resizing optimized for uploads
-const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = base64Str.startsWith('data:') ? base64Str : `data:image/png;base64,${base64Str}`;
-    img.crossOrigin = "Anonymous";
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const scale = maxWidth / img.width;
-      canvas.width = maxWidth;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/png', 0.8));
-      } else {
-          resolve(base64Str);
-      }
-    };
-    img.onerror = () => resolve(base64Str);
-  });
-};
+// const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => { ... } // Removed unused function
 
 const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClose: () => void }) => {
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
@@ -110,7 +90,7 @@ const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClos
   );
 };
 
-export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup, onUpdateTheme, onResetTheme }) => {
+export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup }) => {
   const [activeTab, setActiveTab] = useState<TabType>('create');
   const [isClassOpen, setIsClassOpen] = useState(true);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
@@ -120,7 +100,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [chars, setChars] = useState('');
-  const [type, setType] = useState<'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS'>('WRITING');
+  const [type, setType] = useState<'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUILDER'>('WRITING');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(() => {
      const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0];
@@ -148,8 +128,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [previewSticker, setPreviewSticker] = useState<StoreItem | Sticker | null>(null);
   const [viewingStudent, setViewingStudent] = useState<StudentSummary | null>(null);
   const [activeGoals, setActiveGoals] = useState<ClassGoal[]>([]);
-  const [recentContributions, setRecentContributions] = useState<ContributionLog[]>([]);
-  const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
+  // const [recentContributions, setRecentContributions] = useState<ContributionLog[]>([]); // Removed unused state
+  // const [rewardRules, setRewardRules] = useState<RewardRule[]>([]); // Removed unused state
   
   // Sales Report State
   const [showSalesReport, setShowSalesReport] = useState(false);
@@ -179,7 +159,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [isAddingStudent, setIsAddingStudent] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingData, setIsLoadingData] = useState(false);
   const [lastSuccess, setLastSuccess] = useState('');
   const [lastError, setLastError] = useState('');
 
@@ -195,7 +174,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
     const fetchStatus = async () => {
         setIsLoadingStatus(true);
         const { isOpen } = await sheetService.getClassStatus();
-        setIsClassOpen(isOpen);
+        setIsClassOpen(!!isOpen);
         setIsLoadingStatus(false);
     };
     fetchStudents();
@@ -214,23 +193,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   }, [studentData]);
 
   const loadTabData = async () => {
-      setIsLoadingData(true);
       if (activeTab === 'progress' || activeTab === 'rewards') {
           // Force refresh student data when in these tabs to show latest list
           const students = await sheetService.getAllStudentProgress(true);
           setStudentData(students);
           
           if (activeTab === 'rewards') {
-              const [items, goals, contributions, rules] = await Promise.all([
+              const [items, goals] = await Promise.all([
                   sheetService.getStoreItems(true),
-                  sheetService.getClassGoals(true),
-                  sheetService.getRecentGoalContributions(true),
-                  sheetService.getRewardRules(true)
+                  sheetService.getClassGoals(true)
               ]);
               setStoreItems(items);
               setActiveGoals(goals);
-              setRecentContributions(contributions);
-              setRewardRules(rules);
           }
       }
       else if (activeTab === 'assignments') {
@@ -243,7 +217,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           const dict = await sheetService.getFullDictionary(true);
           setDictionary(dict);
       }
-      setIsLoadingData(false);
   };
 
   const loadSalesReport = async () => {
@@ -304,7 +277,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setIsSubmitting(true);
       
       let charList: string[] = [];
-      if (type === 'FILL_IN_BLANKS') {
+      if (type === 'FILL_IN_BLANKS' || type === 'STORY_BUILDER') {
           charList = chars.split('\n').map(s => s.trim()).filter(Boolean);
       } else {
           charList = chars.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
@@ -318,7 +291,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           type,
           startDate,
           endDate,
-          assignedTo: editingId ? currentAssignedTo : [], // Preserve assignments when editing
+          assignedTo: currentAssignedTo,
           metadata: { 
               customAudio: customAudioMap,
               points: assignmentPoints
@@ -528,11 +501,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       await loadTabData();
   };
 
-  const handleTogglePermission = async (studentId: string, canCreate: boolean) => {
-      await sheetService.updateStudentPermission(studentId, canCreate);
-      await loadTabData();
-  };
-
   const handleCreatePizzaParty = async () => {
       if(!confirm("Start a new Pizza Party goal?")) return;
       await sheetService.createClassGoal("Pizza Party", 500);
@@ -621,7 +589,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   );
 
   // Derived categories for the datalist (always dynamically updated)
-  const existingCategories = Array.from(new Set(storeItems.map(i => i.category || 'Misc.'))).sort();
+  // const existingCategories = Array.from(new Set(storeItems.map(i => i.category || 'Misc.'))).sort(); // Removed unused variable
 
   // STICKER PREVIEW MODAL RENDERER
   const renderStickerPreview = () => {
@@ -892,9 +860,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       <div>
                           <InputLabel label="Type" />
                           <div className="flex gap-2">
-                              {['WRITING', 'PINYIN', 'FILL_IN_BLANKS'].map(t => (
-                                  <button key={t} type="button" onClick={() => setType(t as any)} className={`flex-1 py-3 rounded-xl font-bold text-xs ${type === t ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                                      {t === 'FILL_IN_BLANKS' ? 'SENTENCE' : t}
+                              {['WRITING', 'PINYIN', 'FILL_IN_BLANKS', 'STORY_BUILDER'].map(t => (
+                                  <button key={t} type="button" onClick={() => setType(t as any)} className={`flex-1 py-3 rounded-xl font-bold text-[10px] sm:text-xs ${type === t ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                                      {t === 'FILL_IN_BLANKS' ? 'SENTENCE' : t === 'STORY_BUILDER' ? 'STORY BUILDER' : t}
                                   </button>
                               ))}
                           </div>
@@ -937,8 +905,65 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   </div>
 
                   <div>
-                      <InputLabel label={type === 'FILL_IN_BLANKS' ? "Sentences (One per line, use # for blanks)" : "Characters (Comma or space separated)"} />
-                      <textarea value={chars} onChange={e => setChars(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-lg text-slate-900 outline-none focus:border-indigo-400" rows={5} placeholder={type === 'FILL_IN_BLANKS' ? "我#是#学生\n你好#吗" : "你, 好, 吗"} required />
+                      <InputLabel label={type === 'FILL_IN_BLANKS' ? "Sentences (One per line, use # for blanks)" : type === 'STORY_BUILDER' ? "Format: TargetWord | Phrases | Sentence (One set per line)" : "Characters (Comma or space separated)"} />
+                      <textarea value={chars} onChange={e => setChars(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-lg text-slate-900 outline-none focus:border-indigo-400" rows={5} placeholder={type === 'FILL_IN_BLANKS' ? "我#是#学生\n你好#吗" : type === 'STORY_BUILDER' ? "果 | 水果, 果汁 | 我喜欢吃水果" : "你, 好, 吗"} required />
+                  </div>
+
+                  {/* Assign To Section */}
+                  <div>
+                      <div className="flex justify-between items-center mb-2">
+                          <InputLabel label="Assign To" />
+                          <button 
+                              type="button" 
+                              onClick={() => setCurrentAssignedTo([])} 
+                              className="text-xs font-bold text-indigo-500 hover:text-indigo-700"
+                          >
+                              Select All
+                          </button>
+                      </div>
+                      <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto">
+                          {studentData.length === 0 ? (
+                              <div className="text-center text-slate-400 text-sm font-bold py-4">No students found.</div>
+                          ) : (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  {studentData.map(student => {
+                                      const isSelected = currentAssignedTo.length === 0 || currentAssignedTo.includes(student.id);
+                                      return (
+                                          <button
+                                              key={student.id}
+                                              type="button"
+                                              onClick={() => {
+                                                  if (currentAssignedTo.length === 0) {
+                                                      // If currently "All", switch to just this one
+                                                      setCurrentAssignedTo([student.id]);
+                                                  } else if (currentAssignedTo.includes(student.id)) {
+                                                      // If currently selected, remove it
+                                                      const newSelection = currentAssignedTo.filter(id => id !== student.id);
+                                                      setCurrentAssignedTo(newSelection);
+                                                  } else {
+                                                      // If not selected, add it
+                                                      setCurrentAssignedTo([...currentAssignedTo, student.id]);
+                                                  }
+                                              }}
+                                              className={`p-2 rounded-lg text-sm font-bold text-left transition-all border-2 flex items-center justify-between ${
+                                                  isSelected 
+                                                      ? 'bg-indigo-100 border-indigo-300 text-indigo-700' 
+                                                      : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-200'
+                                              }`}
+                                          >
+                                              <span className="truncate">{student.name}</span>
+                                              {isSelected && <span className="text-indigo-500 text-xs">✓</span>}
+                                          </button>
+                                      );
+                                  })}
+                              </div>
+                          )}
+                      </div>
+                      {currentAssignedTo.length > 0 && (
+                          <p className="text-xs text-slate-500 mt-2 font-medium">
+                              Assigned to {currentAssignedTo.length} student{currentAssignedTo.length !== 1 ? 's' : ''}.
+                          </p>
+                      )}
                   </div>
 
                   <div className="flex gap-4 pt-4">

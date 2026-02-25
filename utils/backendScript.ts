@@ -260,6 +260,7 @@ function doPost(e) {
     else if (action === 'updateRewardRule') return updateRewardRule(data.payload);
     else if (action === 'addToDictionary') return addToDictionary(data.payload);
     else if (action === 'deleteFromDictionary') return deleteFromDictionary(data.payload);
+    else if (action === 'updateStudentScript') return updateStudentScript(data.payload);
     
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) { return response({status: 'error', message: 'Server Error: ' + error.toString()}); } 
@@ -1087,6 +1088,25 @@ function syncStudentData(payload) {
         }
     }
     return response({ status: 'success', points: calculatedPoints });
+}
+
+function updateStudentScript(payload) {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('Students');
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idIdx = findColumnIndex(headers, ['id']);
+  const scriptIdx = findColumnIndex(headers, ['script']);
+  
+  if (scriptIdx === -1) return response({ status: 'error', message: 'Script column not found' });
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][idIdx]) === payload.studentId) {
+      sheet.getRange(i + 1, scriptIdx + 1).setValue(payload.script);
+      return response({ status: 'success' });
+    }
+  }
+  return response({ status: 'error', message: 'Student not found' });
 }
 
 function getAllStudentProgress(startDate, endDate) {

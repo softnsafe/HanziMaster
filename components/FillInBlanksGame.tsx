@@ -55,6 +55,11 @@ export const FillInBlanksGame: React.FC<FillInBlanksGameProps> = ({ lesson, init
         .map(p => p.trim())
         .filter(p => p.length > 0);
 
+    // Add star to first block if it exists
+    if (parts.length > 0) {
+        parts[0] = '*' + parts[0];
+    }
+
     setTargetBlocks(parts);
     setPlacedBlocks([]);
     setStatus('IDLE');

@@ -73,8 +73,7 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
     writerRef.current?.quiz({
       onComplete: () => {
         if (onComplete) onComplete();
-      },
-      highlightOnVariation: true
+      }
     });
   };
 

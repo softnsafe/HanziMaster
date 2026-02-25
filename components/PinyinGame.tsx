@@ -3,9 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { Flashcard, Lesson } from '../types';
 import { getFlashcardData, playPronunciation, validatePinyinWithAI } from '../services/geminiService';
-import { sheetService } from '../services/sheetService';
 import { pinyinify, comparePinyin } from '../utils/pinyinUtils';
-import { convertCharacter } from '../utils/characterConverter';
 
 interface PinyinGameProps {
   lesson: Lesson;
@@ -13,9 +11,10 @@ interface PinyinGameProps {
   onComplete: () => void;
   onExit: () => void;
   onRecordResult: (char: string, score: number, type: 'PINYIN') => void;
+  dictionary?: Record<string, {pinyin: string, definition: string, audio: string}>;
 }
 
-export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacters, onComplete, onExit, onRecordResult }) => {
+export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacters, onComplete, onExit, onRecordResult, dictionary = {} }) => {
   // Queue Management
   const [queue, setQueue] = useState<string[]>(initialCharacters && initialCharacters.length > 0 ? initialCharacters : lesson.characters);
   const [mistakes, setMistakes] = useState<string[]>([]);
@@ -24,8 +23,6 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
 
   // Data State
   const [flashcards, setFlashcards] = useState<Record<string, Flashcard>>({});
-  // Use Full Dictionary for Offline Data
-  const [fullDict, setFullDict] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
   
   // Interaction State
   const [inputValue, setInputValue] = useState('');
@@ -43,28 +40,17 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const currentChar = queue[currentIndex];
   const card = currentChar ? flashcards[currentChar] : undefined;
 
-  // 1. Load Full Dictionary
-  useEffect(() => {
-      const loadDict = async () => {
-          try {
-              const dict = await sheetService.getFullDictionary(false); // cached
-              setFullDict(dict);
-          } catch(e) { console.warn("Dict load fail", e); }
-      };
-      loadDict();
-  }, []);
-
   // 2. Load Card Data (Try Dictionary -> Then AI)
   useEffect(() => {
     const loadCard = async () => {
       if (!currentChar || isFinished || flashcards[currentChar]) return;
 
       // OFFLINE FIRST: Check if data exists in the dictionary sheet
-      if (fullDict[currentChar] && fullDict[currentChar].pinyin) {
+      if (dictionary[currentChar] && dictionary[currentChar].pinyin) {
           setFlashcards(prev => ({ ...prev, [currentChar]: {
               character: currentChar,
-              pinyin: fullDict[currentChar].pinyin,
-              definition: fullDict[currentChar].definition,
+              pinyin: dictionary[currentChar].pinyin,
+              definition: dictionary[currentChar].definition,
               emoji: '📝' // Use a generic icon or we could add emoji to sheet later
           }}));
           return;
@@ -77,7 +63,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       setTimeout(() => inputRef.current?.focus(), 100);
     };
     loadCard();
-  }, [currentChar, isFinished, flashcards, fullDict]); // Depend on fullDict to trigger when loaded
+  }, [currentChar, isFinished, flashcards, dictionary]); 
 
   // 3. Reset per card
   useEffect(() => {
@@ -125,23 +111,23 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
       onRecordResult(currentChar, score, 'PINYIN');
       handlePlaySound();
     } else {
-      const newAttempts = attempts + 1;
-      setAttempts(newAttempts);
-      setAiFeedback(feedback);
-      
-      const inputEl = inputRef.current;
-      if (inputEl) {
-          inputEl.classList.add('animate-shake');
-          setTimeout(() => inputEl.classList.remove('animate-shake'), 500);
-      }
-
-      if (newAttempts >= 3) {
-          setStatus('WRONG'); 
-          if (!mistakes.includes(currentChar)) setMistakes(prev => [...prev, currentChar]);
-          onRecordResult(currentChar, 0, 'PINYIN');
-      } else {
-          setTimeout(() => inputRef.current?.focus(), 100);
-      }
+        const newAttempts = attempts + 1;
+        setAttempts(newAttempts);
+        setAiFeedback(feedback);
+        
+        const inputEl = inputRef.current;
+        if (inputEl) {
+            inputEl.classList.add('animate-shake');
+            setTimeout(() => inputEl.classList.remove('animate-shake'), 500);
+        }
+  
+        if (newAttempts >= 3) {
+            setStatus('WRONG'); 
+            if (!mistakes.includes(currentChar)) setMistakes(prev => [...prev, currentChar]);
+            onRecordResult(currentChar, 0, 'PINYIN');
+        } else {
+            setTimeout(() => inputRef.current?.focus(), 100);
+        }
     }
   };
 
@@ -162,7 +148,7 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
   const handlePlaySound = async () => {
       if (isPlayingAudio || !currentChar) return;
       setIsPlayingAudio(true);
-      const audioUrl = lesson.metadata?.customAudio?.[currentChar] || fullDict[currentChar]?.audio;
+      const audioUrl = lesson.metadata?.customAudio?.[currentChar] || dictionary[currentChar]?.audio;
       await playPronunciation(currentChar, audioUrl, card?.pinyin);
       setIsPlayingAudio(false);
   };
@@ -246,16 +232,19 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                     </div>
 
                     <div className="flex flex-col items-center relative">
-                        <h1 className="text-7xl font-serif-sc font-black text-slate-800 mb-2 tracking-wide drop-shadow-sm">
-                            {currentChar}
-                        </h1>
-                        <button 
-                            onClick={handlePlaySound}
-                            disabled={isPlayingAudio}
-                            className="absolute -right-12 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white border-2 border-indigo-100 text-indigo-500 flex items-center justify-center shadow-sm hover:scale-110 active:scale-95 transition-all"
-                        >
-                            {isPlayingAudio ? <span className="animate-pulse">🔊</span> : '🔊'}
-                        </button>
+                        <div className="flex items-center gap-4 mb-2">
+                            <h1 className="text-7xl font-serif-sc font-black text-slate-800 tracking-wide drop-shadow-sm">
+                                {currentChar}
+                            </h1>
+                            <button 
+                                onClick={handlePlaySound}
+                                disabled={isPlayingAudio}
+                                className="w-12 h-12 rounded-full bg-white border-2 border-indigo-100 text-indigo-500 flex items-center justify-center shadow-sm hover:scale-110 active:scale-95 transition-all"
+                                title="Play Pronunciation"
+                            >
+                                {isPlayingAudio ? <span className="animate-pulse text-xl">🔊</span> : <span className="text-xl">🔊</span>}
+                            </button>
+                        </div>
                         <p className="text-slate-400 font-bold text-lg">{card.definition}</p>
                     </div>
                 </div>
@@ -291,6 +280,10 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                         {card.pinyin === '?' && (
                             <p className="text-[10px] text-amber-500 font-bold text-center mt-2">AI Unavailable. Guess blindly or skip.</p>
                         )}
+                        <p className="text-sm text-slate-500 font-bold text-center mt-3">
+                            Enter pinyin + number<br />
+                            (for example: 我 -&gt; wǒ = wo3)
+                        </p>
                     </form>
                 )}
           </div>

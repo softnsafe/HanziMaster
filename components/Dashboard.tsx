@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Lesson, Student, StudentAssignment, PracticeMode, CalendarEvent, StoreItem, PointLogEntry, ClassGoal, RewardRule } from '../types';
+import { Lesson, Student, StudentAssignment, PracticeMode, PointLogEntry, ClassGoal, RewardRule, ScriptType } from '../types';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { CalendarView } from './CalendarView';
@@ -26,14 +26,13 @@ interface Particle {
   angle: number;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartPractice, onViewReport, onLogout, onRefreshData, rewardRules = [], onUpdateStudent }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, onViewReport, onLogout, onRefreshData, rewardRules = [], onUpdateStudent }) => {
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [statuses, setStatuses] = useState<StudentAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMode, setSelectedMode] = useState<PracticeMode | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0); 
-  const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [activeGoal, setActiveGoal] = useState<ClassGoal | null>(null);
   
   // Sticker Store State
@@ -57,7 +56,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
     if (assignments.length === 0 || forceRefresh) setIsLoading(true);
     
     try {
-        const [lessons, statusList, items, goals] = await Promise.all([
+        const [lessons, statusList, , goals] = await Promise.all([
             sheetService.getAssignments(forceRefresh),
             sheetService.getAssignmentStatuses(student.id, forceRefresh),
             sheetService.getStoreItems(forceRefresh),
@@ -65,7 +64,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
         ]);
         setAssignments(lessons);
         setStatuses(statusList);
-        setStoreItems(items);
         
         const active = goals.find(g => g.status === 'ACTIVE' || g.status === 'COMPLETED') || null;
         setActiveGoal(active);
@@ -171,7 +169,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
     <div className="space-y-8 animate-fade-in pb-10 relative">
       {particles.length > 0 && (
           <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
-              {particles.map((p, i) => (
+              {particles.map((p) => (
                   <div 
                     key={p.id}
                     className="absolute text-2xl animate-float-up"
@@ -326,11 +324,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
                          <Button variant="ghost" onClick={() => setSelectedMode(null)} className="pl-0 text-slate-400">← Back</Button>
                      )}
                      <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-                        <span>{!selectedMode ? '🚀' : selectedMode === 'WRITING' ? '✍️' : selectedMode === 'PINYIN' ? '🗣️' : '🧩'}</span> 
-                        {selectedMode === 'WRITING' ? 'Writing Assignments' : selectedMode === 'PINYIN' ? 'Pinyin Assignments' : selectedMode === 'FILL_IN_BLANKS' ? 'Sentence Builder' : 'Practice Modes'}
+                        <span>{!selectedMode ? '🚀' : selectedMode === 'WRITING' ? '✍️' : selectedMode === 'PINYIN' ? '🗣️' : selectedMode === 'STORY_BUILDER' ? '🧱' : '🧩'}</span> 
+                        {selectedMode === 'WRITING' ? 'Writing Assignments' : selectedMode === 'PINYIN' ? 'Pinyin Assignments' : selectedMode === 'FILL_IN_BLANKS' ? 'Sentence Builder' : selectedMode === 'STORY_BUILDER' ? 'Story Builder' : 'Practice Modes'}
                      </h2>
                  </div>
-                 <Button variant="ghost" onClick={handleRefresh} className="text-slate-400">🔄 Sync Status</Button>
+                 <div className="flex items-center gap-2">
+                    <Button 
+                        variant="ghost" 
+                        onClick={async () => {
+                            const newPref: ScriptType = localStudent.scriptPreference === 'Simplified' ? 'Traditional' : 'Simplified';
+                            const updates = { scriptPreference: newPref };
+                            setLocalStudent(prev => ({ ...prev, ...updates }));
+                            onUpdateStudent(updates);
+                            await sheetService.loginStudent({ ...localStudent, ...updates });
+                        }} 
+                        className="text-slate-500 font-bold bg-white border border-slate-200 hover:bg-slate-50"
+                    >
+                        {localStudent.scriptPreference === 'Simplified' ? '🇨🇳 Simplified' : '🇹🇼 Traditional'}
+                    </Button>
+                    <Button variant="ghost" onClick={handleRefresh} className="text-slate-400">🔄 Sync Status</Button>
+                 </div>
             </div>
             
             {isLoading ? (
@@ -341,11 +354,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, records, onStartP
             ) : (
               <>
                  {!selectedMode ? (
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                          {[
                              { id: 'WRITING' as PracticeMode, icon: '✍️', label: 'Writing', desc: 'Stroke order practice.', color: 'indigo' },
                              { id: 'PINYIN' as PracticeMode, icon: '🗣️', label: 'Pinyin', desc: 'Tones & recognition.', color: 'sky' },
-                             { id: 'FILL_IN_BLANKS' as PracticeMode, icon: '🧩', label: 'Sentence Builder', desc: 'Lego-style grammar.', color: 'purple' }
+                             { id: 'FILL_IN_BLANKS' as PracticeMode, icon: '🧩', label: 'Fill in Blanks', desc: 'Lego-style grammar.', color: 'purple' },
+                             { id: 'STORY_BUILDER' as PracticeMode, icon: '🧱', label: 'Story Builder', desc: 'Practice, Pinyin, Record, Build.', color: 'emerald' }
                          ].map(mode => {
                              const activeCount = visibleAssignments.filter(a => a.type === mode.id && getStatus(a.id) !== 'COMPLETED').length;
                              const totalCount = visibleAssignments.filter(a => a.type === mode.id).length;

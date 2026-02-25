@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Student, PracticeRecord, AppView, ScriptType, Lesson, PracticeMode, RewardRule } from './types';
+import { Student, PracticeRecord, AppView, Lesson, PracticeMode, RewardRule } from './types';
 import { Button } from './components/Button';
 import { Dashboard } from './components/Dashboard';
 import { ProgressReport } from './components/ProgressReport';
@@ -9,20 +9,22 @@ import { HanziPlayer } from './components/HanziPlayer';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { PinyinGame } from './components/PinyinGame';
 import { FillInBlanksGame } from './components/FillInBlanksGame';
+import { StoryBuilderGame } from './components/StoryBuilderGame';
 import { SupportWidget } from './components/SupportWidget';
 import { LoginBackground } from './components/LoginBackground';
 import { sheetService } from './services/sheetService';
 import { convertCharacter } from './utils/characterConverter';
 import { pinyinify } from './utils/pinyinUtils';
+import { useTracking } from './hooks/useTracking';
 
 const App: React.FC = () => {
   // --- State ---
   const [currentView, setCurrentView] = useState<AppView>(AppView.LOGIN);
+  const { track } = useTracking();
   const [student, setStudent] = useState<Student | null>(null);
   const [practiceRecords, setPracticeRecords] = useState<PracticeRecord[]>([]);
   
   // Login State
-  const [scriptPref, setScriptPref] = useState<ScriptType>('Simplified');
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginName, setLoginName] = useState('');
@@ -52,6 +54,13 @@ const App: React.FC = () => {
   // Config State
   const [rewardRules, setRewardRules] = useState<RewardRule[]>([]);
   const [dictionary, setDictionary] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
+
+  // Track View Changes
+  useEffect(() => {
+      if (student && currentView !== AppView.LOGIN) {
+          track(student, 'NAVIGATE', `Viewed ${currentView}`, { view: currentView });
+      }
+  }, [currentView, student, track]);
 
   // Check configuration on load
   useEffect(() => {
@@ -200,14 +209,14 @@ const App: React.FC = () => {
       setIsLoggingIn(true);
       
       // Ensure we start with a clean cache to avoid stale data from previous sessions
-      sheetService.clearAllCache();
+      // sheetService.clearAllCache(); // Removed to improve performance
 
       const tempStudent: any = {
         id: Date.now().toString(),
         name: nameVal,
         password: passVal,
         joinedAt: new Date().toISOString(),
-        scriptPreference: scriptPref,
+        scriptPreference: 'Simplified',
         points: 0,
         stickers: [],
         userAgent: navigator.userAgent // Send device info
@@ -238,15 +247,22 @@ const App: React.FC = () => {
                 // Only now do we set the student state to allow access
                 setStudent(result.student);
                 
-                // Force refresh history on login
-                const history = await sheetService.getStudentHistory(result.student.name, true);
-                setPracticeRecords(history);
-                // Force fetch rules
-                const rules = await sheetService.getRewardRules(true);
-                setRewardRules(rules);
-                const dict = await sheetService.getFullDictionary(true);
-                setDictionary(dict);
+                // Track Login
+                track(result.student, 'LOGIN', 'User logged in', { userAgent: navigator.userAgent });
+                
+                // Transition to Dashboard immediately
                 setCurrentView(AppView.DASHBOARD);
+
+                // Fetch data in background
+                Promise.all([
+                    sheetService.getStudentHistory(result.student.name, true),
+                    sheetService.getRewardRules(true),
+                    sheetService.getFullDictionary(false) // Dictionary is heavy and static, use cache if available
+                ]).then(([history, rules, dict]) => {
+                    setPracticeRecords(history);
+                    setRewardRules(rules);
+                    setDictionary(dict);
+                }).catch(console.error);
             }
          }
       } else {
@@ -267,6 +283,9 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    if (student) {
+        track(student, 'LOGOUT', 'User logged out');
+    }
     sheetService.clearAllCache(); // Clear cache on logout
     setStudent(null);
     setCurrentView(AppView.LOGIN);
@@ -279,6 +298,9 @@ const App: React.FC = () => {
   };
 
   const handleStartPractice = async (lesson: Lesson, mode: PracticeMode) => {
+    if (student) {
+        track(student, 'START_PRACTICE', `Started ${mode} on ${lesson.title}`, { lessonId: lesson.id, mode });
+    }
     setCurrentLesson(lesson);
     // Convert characters based on script preference before queueing
     
@@ -304,6 +326,8 @@ const App: React.FC = () => {
         setCurrentView(AppView.PRACTICE_PINYIN);
     } else if (mode === 'FILL_IN_BLANKS') {
         setCurrentView(AppView.PRACTICE_FILL_IN_BLANKS);
+    } else if (mode === 'STORY_BUILDER') {
+        setCurrentView(AppView.PRACTICE_STORY_BUILDER);
     }
   };
 
@@ -389,7 +413,8 @@ const App: React.FC = () => {
 
   const handleGameComplete = async () => {
       // Called by Pinyin/FillBlank games when finished
-      if (currentLesson) {
+      if (currentLesson && student) {
+          track(student, 'COMPLETE_PRACTICE', `Completed ${currentLesson.title}`, { lessonId: currentLesson.id });
           await completeAssignment(currentLesson.id);
       }
       setCurrentView(AppView.DASHBOARD);
@@ -493,32 +518,11 @@ const App: React.FC = () => {
                 </div>
             </div>
             
-            {/* Script Preference */}
-            <div className="space-y-1.5">
-                <label className="block text-xs font-extrabold text-slate-500 uppercase tracking-wider ml-1">Script Style</label>
-                <div className="grid grid-cols-2 gap-3">
-                        <div 
-                        onClick={() => setScriptPref('Simplified')}
-                        className={`cursor-pointer border-2 rounded-xl p-3 text-center transition-all ${scriptPref === 'Simplified' ? 'border-sky-400 bg-sky-50 text-sky-700' : 'border-slate-100 bg-white/50 hover:border-slate-200 text-slate-400'}`}
-                        >
-                        <div className="text-xl font-serif-sc font-bold mb-1">汉字</div>
-                        <div className="text-xs font-bold">Simplified</div>
-                        </div>
-                        <div 
-                        onClick={() => setScriptPref('Traditional')}
-                        className={`cursor-pointer border-2 rounded-xl p-3 text-center transition-all ${scriptPref === 'Traditional' ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-100 bg-white/50 hover:border-slate-200 text-slate-400'}`}
-                        >
-                        <div className="text-xl font-serif-sc font-bold mb-1">漢字</div>
-                        <div className="text-xs font-bold">Traditional</div>
-                        </div>
+            {loginError && (
+                <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold animate-bounce-in">
+                    {loginError}
                 </div>
-            </div>
-
-          {loginError && (
-              <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold animate-bounce-in">
-                  {loginError}
-              </div>
-          )}
+            )}
 
           <button 
             type="submit" 
@@ -674,6 +678,7 @@ const App: React.FC = () => {
               onComplete={handleGameComplete}
               onExit={() => setCurrentView(AppView.DASHBOARD)}
               onRecordResult={handleGenericRecord}
+              dictionary={dictionary}
           />
       );
   }
@@ -686,6 +691,19 @@ const App: React.FC = () => {
               onComplete={handleGameComplete}
               onExit={() => setCurrentView(AppView.DASHBOARD)}
               onRecordResult={handleGenericRecord}
+          />
+      );
+  }
+
+  if (currentView === AppView.PRACTICE_STORY_BUILDER && currentLesson) {
+      return (
+          <StoryBuilderGame 
+              lesson={currentLesson}
+              initialCharacters={practiceQueue}
+              onComplete={handleGameComplete}
+              onExit={() => setCurrentView(AppView.DASHBOARD)}
+              onRecordResult={handleGenericRecord}
+              dictionary={dictionary}
           />
       );
   }

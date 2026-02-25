@@ -3,7 +3,7 @@ export type ScriptType = 'Simplified' | 'Traditional';
 
 export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
 
-export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS';
+export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUILDER';
 
 export type CalendarEventType = 'SCHOOL_DAY' | 'SPECIAL_EVENT' | 'NO_SCHOOL';
 
@@ -152,6 +152,7 @@ export enum AppView {
   PRACTICE_WRITING = 'PRACTICE_WRITING',
   PRACTICE_PINYIN = 'PRACTICE_PINYIN',
   PRACTICE_FILL_IN_BLANKS = 'PRACTICE_FILL_IN_BLANKS',
+  PRACTICE_STORY_BUILDER = 'PRACTICE_STORY_BUILDER',
   REPORT = 'REPORT',
   STICKER_STORE = 'STICKER_STORE'
 }

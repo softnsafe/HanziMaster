@@ -545,6 +545,11 @@ export const sheetService = {
       return postData('updatePermission', { studentId: sid, canCreate: c });
   },
 
+  async updateStudentScript(sid: string, script: ScriptType) {
+      if (this.isDemoMode()) return { success: true };
+      return postData('updateStudentScript', { studentId: sid, script });
+  },
+
   async createAssignment(l: Lesson) {
       if (this.isDemoMode()) return { success: true };
       const res = await postData('createAssignment', l);
@@ -618,5 +623,12 @@ export const sheetService = {
   async syncStudentData(sid: string) {
       if (this.isDemoMode()) return { success: true };
       return postData('syncStudentData', { studentId: sid });
+  },
+
+  async logActivity(studentId: string, studentName: string, action: string, details: string = '', metadata: any = {}) {
+      if (this.isDemoMode()) return { success: true };
+      // Fire and forget - don't await response to avoid blocking UI
+      postData('logActivity', { studentId, studentName, action, details, metadata }).catch(console.error);
+      return { success: true };
   }
 };

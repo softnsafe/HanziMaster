@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
 import { sheetService } from './sheetService';
 import { convertAudioDriveLink } from '../utils/stickerData';
@@ -11,7 +11,7 @@ let aiInstance: GoogleGenAI | null = null;
 const getAI = (): GoogleGenAI => {
   if (!aiInstance) {
     // Fallback to empty string to prevent crash if key is missing during render
-    const apiKey = process.env.API_KEY || ''; 
+    const apiKey = process.env.GEMINI_API_KEY || ''; 
     aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;
@@ -27,38 +27,6 @@ const cleanJson = (text: string): string => {
     }
     return cleaned.trim();
 };
-
-// --- Audio Decoding Helpers (Kept for future use if Gemini TTS is re-enabled) ---
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
-let audioContext: AudioContext | null = null;
 
 // Helper to play audio and return promise that resolves on success/fail
 export const playAudioUrl = async (url: string): Promise<boolean> => {
@@ -79,13 +47,13 @@ export const playAudioUrl = async (url: string): Promise<boolean> => {
     return new Promise((resolve) => {
         const audio = new Audio(url);
         audio.onended = () => resolve(true);
-        audio.onerror = (e) => {
+        audio.onerror = () => {
             // Not logging error here as 404 is expected fallback behavior
             resolve(false);
         };
         // Timeout if it hangs
         setTimeout(() => resolve(false), 3000);
-        audio.play().catch((e) => {
+        audio.play().catch(() => {
             // Usually 404 or Not Supported error results in promise rejection or immediate error
             resolve(false);
         });
@@ -224,7 +192,7 @@ export const generateLobbyBackground = async (): Promise<string | null> => {
     const parts = response.candidates?.[0]?.content?.parts;
     if (parts) {
         for (const part of parts) {
-            if (part.inlineData) {
+            if (part.inlineData && part.inlineData.data) {
                 const base64EncodeString: string = part.inlineData.data;
                 return `data:image/png;base64,${base64EncodeString}`;
             }
@@ -368,7 +336,7 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
     const parts = response.candidates?.[0]?.content?.parts;
     if (parts) {
         for (const part of parts) {
-            if (part.inlineData) {
+            if (part.inlineData && part.inlineData.data) {
                 const base64EncodeString: string = part.inlineData.data;
                 return `data:image/png;base64,${base64EncodeString}`;
             }
@@ -379,6 +347,41 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
     console.error("Error generating sticker (falling back to offline):", error);
     // AUTOMATIC FALLBACK: If API fails (Quota/Network), use offline generator
     return generateFallbackSticker(prompt);
+  }
+};
+
+export const generateStoryBuilderImage = async (sentence: string): Promise<string | null> => {
+  try {
+    const ai = getAI();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            text: `A cute, colorful, kid-friendly illustration of: ${sentence}. Storybook style, vibrant colors, simple and cheerful. Do not include any text or words in the image.`
+          },
+        ],
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "16:9",
+        }
+      },
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (parts) {
+        for (const part of parts) {
+            if (part.inlineData && part.inlineData.data) {
+                const base64EncodeString: string = part.inlineData.data;
+                return `data:image/png;base64,${base64EncodeString}`;
+            }
+        }
+    }
+    return null;
+  } catch (error) {
+    console.error("Error generating Story Builder image:", error);
+    return null;
   }
 };
 
@@ -429,6 +432,87 @@ export const generateDictionaryEntry = async (character: string): Promise<{
   } catch (error) {
     console.error("Error generating dictionary entry:", error);
     return null;
+  }
+};
+
+export const getCharacterDetails = async (character: string): Promise<{
+    pinyin: string;
+    definition: string;
+    radical: string;
+    strokeCount: number;
+} | null> => {
+  try {
+    const ai = getAI();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{
+          text: `Analyze the Chinese character: "${character}".
+          Return JSON with:
+          - pinyin: Numbered pinyin (e.g. for 好 return 'hao3'). Lowercase.
+          - definition: Simple English meaning (1-5 words max).
+          - radical: The Chinese radical for this character (just the character itself, e.g., '女').
+          - strokeCount: Total number of strokes as an integer.
+          `
+        }]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pinyin: { type: Type.STRING },
+            definition: { type: Type.STRING },
+            radical: { type: Type.STRING },
+            strokeCount: { type: Type.INTEGER }
+          },
+          required: ["pinyin", "definition", "radical", "strokeCount"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response");
+    
+    const cleanText = cleanJson(text);
+    return JSON.parse(cleanText);
+
+  } catch (error) {
+    console.error("Error generating character details:", error);
+    return null;
+  }
+};
+
+export const getSentencePinyin = async (sentence: string): Promise<string[]> => {
+  try {
+    const ai = getAI();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{
+          text: `Provide the pinyin for each character in the Chinese sentence: "${sentence}".
+          Return a JSON array of strings, where each string is the pinyin with tone marks (e.g., "wǒ", "xǐ", "huān") for the corresponding character in the sentence. Ignore punctuation.
+          `
+        }]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response");
+    
+    const cleanText = cleanJson(text);
+    return JSON.parse(cleanText);
+
+  } catch (error) {
+    console.error("Error generating sentence pinyin:", error);
+    return [];
   }
 };
 

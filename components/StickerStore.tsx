@@ -4,7 +4,7 @@ import { Button } from './Button';
 import { Student, StoreItem } from '../types';
 import { STICKER_CATALOG, convertDriveLink } from '../utils/stickerData';
 import { sheetService } from '../services/sheetService';
-import { generateSticker } from '../services/geminiService';
+import { useTracking } from '../hooks/useTracking';
 
 interface StickerStoreProps {
   student: Student;
@@ -14,6 +14,7 @@ interface StickerStoreProps {
 }
 
 export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStudent, onClose, initialTab = 'CATALOG' }) => {
+  const { track } = useTracking();
   const [activeTab, setActiveTab] = useState<'CATALOG' | 'AI_LAB' | 'COLLECTION'>(initialTab === 'AI_LAB' ? 'CATALOG' : initialTab);
   
   // Book state: Open = pages visible, Closed = cover visible
@@ -101,6 +102,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       
       setPurchasingId(null);
       if (result.success && result.points !== undefined && result.stickers) {
+          track(student, 'PURCHASE_STICKER', `Purchased sticker: ${stickerId}`, { stickerId, cost });
           onUpdateStudent({ points: result.points, stickers: result.stickers });
       } else {
           setErrorMsg(result.message || "Purchase failed. Try again.");
@@ -139,8 +141,6 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   }, [totalPages, allCollectedStickers.length]);
 
   const currentBookStickers = allCollectedStickers.slice(bookPage * ITEMS_PER_PAGE, (bookPage + 1) * ITEMS_PER_PAGE);
-  const pageCategories = Array.from(new Set(currentBookStickers.map(s => s.category)));
-  const pageTheme = pageCategories.length === 1 ? pageCategories[0] : pageCategories.length === 0 ? "Empty" : "Mixed Collection";
 
   const toggleView = () => {
       if (activeTab === 'CATALOG') {
@@ -268,7 +268,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
             </div>
 
             {/* Main Content Area */}
-            <div className={`flex-1 w-full relative overflow-hidden flex flex-col ${activeTab === 'COLLECTION' ? 'bg-[#2c3e50]' : 'bg-slate-50'}`}>
+            <div className={`flex-1 w-full relative flex flex-col ${activeTab === 'COLLECTION' ? 'bg-[#2c3e50] overflow-y-auto' : 'bg-slate-50 overflow-hidden'}`}>
                 
                 {errorMsg && (
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-rose-50 text-rose-600 rounded-full font-bold text-sm border border-rose-200 shadow-lg animate-bounce-in">
@@ -401,41 +401,63 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
 
                 {/* STICKER BOOK VIEW (COLLECTION) */}
                 {activeTab === 'COLLECTION' && (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-2 relative">
+                    <div className="w-full min-h-full flex flex-row items-center justify-center p-4 relative gap-6">
                         {/* Background Wood Texture */}
                         <div className="absolute inset-0 bg-[#2c3e50] opacity-100" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #34495e 25%, transparent 25%, transparent 75%, #34495e 75%, #34495e), repeating-linear-gradient(45deg, #34495e 25%, #2c3e50 25%, #2c3e50 75%, #34495e 75%, #34495e)', backgroundPosition: '0 0, 10px 10px', backgroundSize: '20px 20px' }}></div>
 
-                        {/* Controls */}
-                        <div className="w-full max-w-4xl flex justify-between items-center mb-2 px-4 z-20">
+                        {/* SIDEBAR Controls */}
+                        <div className="flex flex-col gap-4 z-20 shrink-0">
+                            <button 
+                                onClick={() => setIsBookOpen(false)}
+                                className="w-14 h-14 rounded-2xl bg-rose-500/80 backdrop-blur-sm border border-white/10 flex flex-col items-center justify-center text-white hover:bg-rose-600 transition-all shadow-lg"
+                                title="Close Book"
+                            >
+                                <span className="text-2xl mb-1">📕</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Close</span>
+                            </button>
+
                             <button 
                                 onClick={handleRefreshCollection}
                                 disabled={isRefreshing}
-                                className="text-xs font-bold text-slate-300 hover:text-white flex items-center gap-1 bg-black/20 px-3 py-1.5 rounded-lg backdrop-blur-sm border border-white/10"
+                                className="w-14 h-14 rounded-2xl bg-black/20 backdrop-blur-sm border border-white/10 flex flex-col items-center justify-center text-slate-300 hover:text-white hover:bg-black/30 transition-all shadow-lg"
+                                title="Sync Collection"
                             >
-                                {isRefreshing ? <span className="animate-spin">🔄</span> : '🔄'} Sync
+                                <span className={`text-2xl mb-1 ${isRefreshing ? 'animate-spin' : ''}`}>🔄</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Sync</span>
                             </button>
                             
-                            <div className="flex items-center gap-4 bg-black/30 backdrop-blur rounded-full px-4 py-1.5 shadow-lg border border-white/10 text-white">
-                                <button disabled={bookPage === 0} onClick={() => setBookPage(p => p - 1)} className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold">←</button>
-                                <span className="font-mono font-bold text-sm">{bookPage + 1} / {totalPages}</span>
-                                <button disabled={bookPage >= totalPages - 1} onClick={() => setBookPage(p => p + 1)} className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold">→</button>
+                            <div className="flex flex-col items-center gap-2 bg-black/30 backdrop-blur rounded-2xl p-2 shadow-lg border border-white/10 text-white">
+                                <button 
+                                    disabled={bookPage === 0} 
+                                    onClick={() => setBookPage(p => p - 1)} 
+                                    className="w-10 h-10 rounded-xl hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold transition-colors"
+                                >
+                                    ▲
+                                </button>
+                                
+                                <div className="flex flex-col items-center py-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Page</span>
+                                    <span className="font-mono font-bold text-xl">{bookPage + 1}</span>
+                                    <div className="w-8 h-[1px] bg-white/20 my-1"></div>
+                                    <span className="font-mono text-sm text-slate-400">{totalPages}</span>
+                                </div>
+
+                                <button 
+                                    disabled={bookPage >= totalPages - 1} 
+                                    onClick={() => setBookPage(p => p + 1)} 
+                                    className="w-10 h-10 rounded-xl hover:bg-white/20 flex items-center justify-center disabled:opacity-30 font-bold transition-colors"
+                                >
+                                    ▼
+                                </button>
                             </div>
                         </div>
 
                         {/* THE OPEN BOOK */}
-                        <div className="relative bg-[#fdfbf7] w-full max-w-4xl aspect-[4/3] max-h-[75vh] rounded-r-2xl rounded-l-md shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex overflow-hidden border-r-8 border-b-8 border-[#e3dccb]">
+                        <div className="relative bg-[#fdfbf7] w-full max-w-4xl aspect-[4/3] max-h-[85vh] rounded-r-2xl rounded-l-md shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex overflow-hidden border-r-8 border-b-8 border-[#e3dccb]">
                             <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black/20 to-transparent z-20 pointer-events-none"></div>
                             <div className="absolute inset-0 opacity-40 pointer-events-none z-0" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.08'/%3E%3C/svg%3E")` }}></div>
 
                             <div className="flex-1 p-6 sm:p-10 flex flex-col relative z-10 ml-4">
-                                <div className="flex justify-between items-center border-b-2 border-stone-200 pb-3 mb-6">
-                                    <div>
-                                        <h3 className="font-serif-sc font-bold text-2xl text-stone-700 tracking-wide">{pageTheme} Collection</h3>
-                                        <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Page {bookPage + 1}</p>
-                                    </div>
-                                    <div className="text-3xl opacity-20 grayscale">{pageTheme === 'Animals' ? '🐾' : pageTheme === 'Food' ? '🍔' : '✨'}</div>
-                                </div>
-
                                 <div className="grid grid-cols-3 grid-rows-2 gap-6 h-full w-full">
                                     {[...Array(ITEMS_PER_PAGE)].map((_, i) => {
                                         const item = currentBookStickers[i];

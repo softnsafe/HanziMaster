@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.25.7)
+// HANZI MASTER BACKEND SCRIPT (v3.26.0)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.25.7'; 
+const VERSION = 'v3.26.0'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -150,6 +150,14 @@ function setup() {
     }
   }
   
+  // 14. ACTIVITY LOGS
+  let actSheet = ss.getSheetByName('ActivityLogs');
+  if (!actSheet) {
+    actSheet = ss.insertSheet('ActivityLogs');
+    actSheet.appendRow(['Timestamp', 'StudentID', 'Name', 'Action', 'Details', 'Metadata']);
+    actSheet.setFrozenRows(1);
+  }
+
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('CLASS_STATUS')) { props.setProperty('CLASS_STATUS', 'OPEN'); }
   
@@ -258,6 +266,7 @@ function doPost(e) {
     else if (action === 'updateRewardRule') return updateRewardRule(data.payload);
     else if (action === 'addToDictionary') return addToDictionary(data.payload);
     else if (action === 'deleteFromDictionary') return deleteFromDictionary(data.payload);
+    else if (action === 'logActivity') return logActivity(data.payload);
     
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) { return response({status: 'error', message: 'Server Error: ' + error.toString()}); } 
@@ -267,6 +276,25 @@ function doPost(e) {
 function response(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
 
 // --- FEATURE FUNCTIONS ---
+
+function logActivity(payload) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('ActivityLogs');
+  if (!sheet) { setup(); sheet = ss.getSheetByName('ActivityLogs'); }
+  
+  const timestamp = new Date().toISOString();
+  // Columns: Timestamp, StudentID, Name, Action, Details, Metadata
+  sheet.appendRow([
+    timestamp,
+    payload.studentId || 'Anonymous',
+    payload.studentName || 'Guest',
+    payload.action || 'Unknown',
+    payload.details || '',
+    JSON.stringify(payload.metadata || {})
+  ]);
+  
+  return response({ status: 'success' });
+}
 
 function addStudent(payload) {
     const ss = getSpreadsheet();
