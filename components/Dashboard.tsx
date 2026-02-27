@@ -358,7 +358,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                          {[
                              { id: 'WRITING' as PracticeMode, icon: '✍️', label: 'Writing', desc: 'Stroke order practice.', color: 'indigo' },
                              { id: 'PINYIN' as PracticeMode, icon: '🗣️', label: 'Pinyin', desc: 'Tones & recognition.', color: 'sky' },
-                             { id: 'FILL_IN_BLANKS' as PracticeMode, icon: '🧩', label: 'Fill in Blanks', desc: 'Lego-style grammar.', color: 'purple' },
+                             { id: 'FILL_IN_BLANKS' as PracticeMode, icon: '🧩', label: 'Fill in Blanks', desc: 'Sentence Building.', color: 'purple' },
                              { id: 'STORY_BUILDER' as PracticeMode, icon: '🧱', label: 'Story Builder', desc: 'Practice, Pinyin, Record, Build.', color: 'emerald' }
                          ].map(mode => {
                              const activeCount = visibleAssignments.filter(a => a.type === mode.id && getStatus(a.id) !== 'COMPLETED').length;

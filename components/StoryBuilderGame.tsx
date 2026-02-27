@@ -3,6 +3,7 @@ import { Button } from './Button';
 import { Lesson } from '../types';
 import { HanziPlayer } from './HanziPlayer';
 import { generateStoryBuilderImage, getCharacterDetails, getSentencePinyin, playPronunciation } from '../services/geminiService';
+import { pinyinify } from '../utils/pinyinUtils';
 
 interface StoryBuilderGameProps {
   lesson: Lesson;
@@ -32,7 +33,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   const [hanziKey, setHanziKey] = useState(0);
 
   // Character Details state
-  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number } | null>(null);
+  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string } | null>(null);
 
   // Sentence Pinyin state
   const [sentencePinyin, setSentencePinyin] = useState<string[]>([]);
@@ -98,7 +99,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       if (word) {
         getCharacterDetails(word).then(details => {
           if (details) {
-            setCharDetails({ radical: details.radical, strokeCount: details.strokeCount });
+            setCharDetails({ radical: details.radical, strokeCount: details.strokeCount, pinyin: details.pinyin });
           }
         });
       }
@@ -254,6 +255,15 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
               
               {charDetails && (
                 <div className="flex gap-4 mb-6 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100">
+                  {charDetails.pinyin && (
+                      <>
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
+                            <span className="text-2xl font-bold text-sky-700">{pinyinify(charDetails.pinyin)}</span>
+                          </div>
+                          <div className="w-px bg-sky-200"></div>
+                      </>
+                  )}
                   <div className="flex flex-col items-center">
                     <span className="text-sm font-bold text-sky-400 uppercase tracking-wider">Radical</span>
                     <span className="text-2xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>

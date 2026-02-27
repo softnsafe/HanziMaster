@@ -4,7 +4,7 @@ import { Sticker } from '../types';
 export const STICKER_CATEGORIES = ["Animals", "Food", "School", "Misc.", "Rewards"];
 
 // Helper to convert Google Drive sharing links to usable image sources
-export const convertDriveLink = (url: string): string => {
+export const convertDriveLink = (url: string, size: number = 400): string => {
     if (!url) return '';
     // Return immediately if it's a data URL or already converted
     if (url.startsWith('data:')) return url;
@@ -21,8 +21,8 @@ export const convertDriveLink = (url: string): string => {
         
         if (match && (url.includes('drive.google.com') || url.includes('docs.google.com'))) {
             const id = match[0];
-            // =s400 requests a 400px width thumbnail (efficient & bypasses CORS often)
-            return `https://lh3.googleusercontent.com/d/${id}=s400`; 
+            // =s{size} requests a thumbnail of that width (efficient & bypasses CORS often)
+            return `https://lh3.googleusercontent.com/d/${id}=s${size}`; 
         }
     } catch (e) {
         console.warn("Failed to parse Drive link", e);

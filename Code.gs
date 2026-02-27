@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.26.0)
+// HANZI MASTER BACKEND SCRIPT (v3.27.0)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.26.0'; 
+const VERSION = 'v3.27.1'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -83,6 +83,14 @@ function setup() {
       if (findColumnIndex(headers, ['pointsearned', 'points']) === -1) { 
           saSheet.getRange(1, saSheet.getLastColumn() + 1).setValue('PointsEarned'); 
       }
+  }
+
+  // 6.5 STUDENT STICKERS (New Normalized Table)
+  let ssSheet = ss.getSheetByName('StudentStickers');
+  if (!ssSheet) {
+      ssSheet = ss.insertSheet('StudentStickers');
+      ssSheet.appendRow(['ID', 'StudentID', 'StickerID', 'DateAcquired', 'Type']);
+      ssSheet.setFrozenRows(1);
   }
 
   // 7. LOGS
@@ -859,6 +867,19 @@ function handleLogin(payload) {
       break; 
     } 
   }
+
+  // Merge with StudentStickers (New Sheet)
+  const ssSheet = ss.getSheetByName('StudentStickers');
+  if (ssSheet && existingId) {
+      const ssData = ssSheet.getDataRange().getValues();
+      for (let j = 1; j < ssData.length; j++) {
+          if (String(ssData[j][1]) === existingId) {
+              stickers.push(String(ssData[j][2]));
+          }
+      }
+  }
+  // Deduplicate
+  stickers = [...new Set(stickers)];
   
   const timestamp = new Date().toISOString();
   
@@ -970,7 +991,7 @@ function adminGiveSticker(payload) {
     if (!studentSheet) return response({ status: 'error', message: 'No Student sheet' });
     const data = studentSheet.getDataRange().getValues();
     const headers = data[0];
-    const stickersIdx = findColumnIndex(headers, ['stickers']);
+    const stickersIdx = findColumnIndex(headers, ['stickers', 'rewards']);
     if (stickersIdx === -1) return response({ status: 'error', message: 'No stickers column' });
     const targetIds = payload.studentIds || [];
     const stickerData = payload.sticker; 
@@ -980,16 +1001,15 @@ function adminGiveSticker(payload) {
        try { savedUrl = saveMediaToDrive(savedUrl, "Sticker_" + stickerId); } catch (e) { if (savedUrl.length > 49000) return response({ status: 'error', message: e.message }); }
     }
     if (!stickerData.id && cSheet) { for (let sid of targetIds) { try { cSheet.appendRow([stickerId, sid, savedUrl, stickerData.prompt, new Date()]); } catch(e) {} } }
-    for(let i=1; i<data.length; i++) {
-        const sid = String(data[i][0]);
-        if (targetIds.includes(sid)) {
-            let currentStickers = []; try { currentStickers = data[i][stickersIdx] ? JSON.parse(data[i][stickersIdx]) : []; } catch(e) {}
-            if (!currentStickers.includes(stickerId)) {
-                currentStickers.push(stickerId);
-                studentSheet.getRange(i+1, stickersIdx + 1).setValue(JSON.stringify(currentStickers));
-            }
-        }
+    
+    // Add to StudentStickers Sheet
+    let ssSheet = ss.getSheetByName('StudentStickers');
+    if (!ssSheet) { setup(); ssSheet = ss.getSheetByName('StudentStickers'); }
+    
+    for (let sid of targetIds) {
+        ssSheet.appendRow(['ss-' + Date.now() + Math.random(), sid, stickerId, new Date(), 'GIFT']);
     }
+
     return response({ status: 'success' });
 }
 
@@ -997,23 +1017,34 @@ function purchaseSticker(payload) {
     const ss = getSpreadsheet();
     const sheet = ss.getSheetByName('Students');
     if (!sheet) return response({ status: 'error', message: 'No Student sheet' });
+    
+    // Setup StudentStickers if missing
+    let ssSheet = ss.getSheetByName('StudentStickers');
+    if (!ssSheet) { setup(); ssSheet = ss.getSheetByName('StudentStickers'); }
+
     const lastCol = sheet.getLastColumn();
     let data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
     let headers = data[0];
     let pointsIdx = findColumnIndex(headers, ['points']);
-    let stickersIdx = findColumnIndex(headers, ['stickers']);
-    if (pointsIdx === -1 || stickersIdx === -1) { setup(); SpreadsheetApp.flush(); data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues(); headers = data[0]; pointsIdx = findColumnIndex(headers, ['points']); stickersIdx = findColumnIndex(headers, ['stickers']); }
-    if (pointsIdx === -1 || stickersIdx === -1) { return response({ status: 'error', message: 'Database Error: Missing Columns.' }); }
-    let foundRow = -1; let currentPoints = 0; let currentStickers = [];
-    for(let i=1; i<data.length; i++) { if(String(data[i][0]) === String(payload.studentId)) { foundRow = i + 1; currentPoints = Number(data[i][pointsIdx]); if (isNaN(currentPoints)) currentPoints = 0; try { currentStickers = data[i][stickersIdx] ? JSON.parse(data[i][stickersIdx]) : []; } catch(e) { currentStickers = []; } break; } }
+    
+    if (pointsIdx === -1) { return response({ status: 'error', message: 'Database Error: Missing Columns.' }); }
+    
+    let foundRow = -1; let currentPoints = 0;
+    for(let i=1; i<data.length; i++) { if(String(data[i][0]) === String(payload.studentId)) { foundRow = i + 1; currentPoints = Number(data[i][pointsIdx]); if (isNaN(currentPoints)) currentPoints = 0; break; } }
+    
     if (foundRow === -1) return response({ status: 'error', message: 'Student not found in DB' });
     if (currentPoints < payload.cost) { return response({ status: 'error', message: 'Not enough points.' }); }
+    
     const newPoints = currentPoints - payload.cost;
     sheet.getRange(foundRow, pointsIdx + 1).setValue(newPoints);
-    if (!currentStickers.includes(payload.stickerId)) { currentStickers.push(payload.stickerId); sheet.getRange(foundRow, stickersIdx + 1).setValue(JSON.stringify(currentStickers)); }
+    
+    // Add to StudentStickers
+    ssSheet.appendRow(['ss-' + Date.now(), payload.studentId, payload.stickerId, new Date(), 'STORE']);
+    
     const logSheet = ss.getSheetByName('PointLogs');
     if(logSheet) logSheet.appendRow([new Date(), payload.studentId, -payload.cost, 'Bought sticker: ' + payload.stickerId, newPoints]);
-    return response({ status: 'success', points: newPoints, stickers: currentStickers });
+    
+    return response({ status: 'success', points: newPoints, stickers: [payload.stickerId] }); // Frontend will refresh anyway
 }
 
 function saveCustomSticker(payload) {
@@ -1026,22 +1057,29 @@ function saveCustomSticker(payload) {
     const data = studentSheet.getRange(1, 1, studentSheet.getLastRow(), lastCol).getValues();
     const headers = data[0];
     const pointsIdx = findColumnIndex(headers, ['points']);
-    const stickersIdx = findColumnIndex(headers, ['stickers']);
-    if (pointsIdx === -1 || stickersIdx === -1) { return response({ status: 'error', message: "Database error." }); }
-    let foundRow = -1; let currentPoints = 0; let currentStickers = [];
-    for(let i=1; i<data.length; i++) { if(String(data[i][0]) === String(payload.studentId)) { foundRow = i + 1; currentPoints = Number(data[i][pointsIdx]); if (isNaN(currentPoints)) currentPoints = 0; try { currentStickers = data[i][stickersIdx] ? JSON.parse(data[i][stickersIdx]) : []; } catch(e) {} break; } }
+    
+    if (pointsIdx === -1) { return response({ status: 'error', message: "Database error." }); }
+    let foundRow = -1; let currentPoints = 0;
+    for(let i=1; i<data.length; i++) { if(String(data[i][0]) === String(payload.studentId)) { foundRow = i + 1; currentPoints = Number(data[i][pointsIdx]); if (isNaN(currentPoints)) currentPoints = 0; break; } }
     if (foundRow === -1) return response({ status: 'error', message: 'Student not found' });
     if (currentPoints < payload.cost) return response({ status: 'error', message: 'Not enough points' });
+    
     let savedUrl = payload.dataUrl;
     if (savedUrl.startsWith('data:')) { try { savedUrl = saveMediaToDrive(savedUrl, "CustomSticker_" + payload.studentId); } catch (e) { if (savedUrl.length > 49000) return response({ status: 'error', message: e.message }); } }
+    
     const newPoints = currentPoints - payload.cost;
     studentSheet.getRange(foundRow, pointsIdx + 1).setValue(newPoints);
+    
     const stickerId = 'custom-' + Date.now();
     cSheet.appendRow([stickerId, payload.studentId, savedUrl, payload.prompt, new Date()]);
-    currentStickers.push(stickerId);
-    studentSheet.getRange(foundRow, stickersIdx + 1).setValue(JSON.stringify(currentStickers));
+    
+    // We don't strictly need to add custom stickers to StudentStickers because CustomStickers table already links them to StudentID
+    // But for consistency, we could. However, getAllStudentProgress fetches CustomStickers separately.
+    // So we will leave it as is (only in CustomStickers).
+    
     const logSheet = ss.getSheetByName('PointLogs');
     if(logSheet) logSheet.appendRow([new Date(), payload.studentId, -payload.cost, 'Created AI Sticker', newPoints]);
+    
     return response({ status: 'success', points: newPoints, sticker: { id: stickerId, dataUrl: savedUrl, prompt: payload.prompt } });
 }
 
@@ -1061,7 +1099,7 @@ function syncStudentData(payload) {
     const sData = studentSheet.getDataRange().getValues();
     const headers = sData[0];
     const pointsIdx = findColumnIndex(headers, ['points']);
-    const stickersIdx = findColumnIndex(headers, ['stickers']);
+    const stickersIdx = findColumnIndex(headers, ['stickers', 'rewards']);
     let foundRow = -1;
     for (let i = 1; i < sData.length; i++) {
         if (String(sData[i][0]) === studentId) {
@@ -1091,6 +1129,7 @@ function getAllStudentProgress(startDate, endDate) {
   const ptsIdx = findColumnIndex(sHeaders, ['points']);
   const permIdx = findColumnIndex(sHeaders, ['permissions', 'perm']);
   const stickIdx = findColumnIndex(sHeaders, ['stickers']);
+  const rewardIdx = findColumnIndex(sHeaders, ['rewards']);
   const scriptIdx = findColumnIndex(sHeaders, ['script']);
   
   // Auxiliary Data
@@ -1102,6 +1141,9 @@ function getAllStudentProgress(startDate, endDate) {
   
   const cSheet = ss.getSheetByName('CustomStickers');
   const cData = cSheet ? cSheet.getDataRange().getValues() : [];
+  
+  const ssSheet = ss.getSheetByName('StudentStickers');
+  const ssData = ssSheet ? ssSheet.getDataRange().getValues() : [];
   
   const students = [];
   
@@ -1152,7 +1194,20 @@ function getAllStudentProgress(startDate, endDate) {
     }
     
     let stickers = [];
-    try { stickers = stickIdx > -1 && sData[i][stickIdx] ? JSON.parse(sData[i][stickIdx]) : []; } catch(e) {}
+    // 1. Legacy Stickers from JSON column
+    try { if (stickIdx > -1 && sData[i][stickIdx]) stickers = JSON.parse(sData[i][stickIdx]); } catch(e) {}
+    try { if (rewardIdx > -1 && rewardIdx !== stickIdx && sData[i][rewardIdx]) stickers = [...stickers, ...JSON.parse(sData[i][rewardIdx])]; } catch(e) {}
+    
+    // 2. New Stickers from StudentStickers Sheet
+    if (ssData.length > 1) {
+        for (let n = 1; n < ssData.length; n++) {
+            if (String(ssData[n][1]) === id) {
+                stickers.push(String(ssData[n][2]));
+            }
+        }
+    }
+    // Deduplicate
+    stickers = [...new Set(stickers)];
 
     students.push({
         id: id,

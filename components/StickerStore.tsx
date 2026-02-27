@@ -36,6 +36,10 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   // Book Page
   const [bookPage, setBookPage] = useState(0);
 
+  // Print Selection State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedStickerIds, setSelectedStickerIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
       // Load store data in background
       loadStore();
@@ -90,6 +94,147 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
       } finally {
           setIsRefreshing(false);
       }
+  };
+
+  const toggleSelection = (id: string) => {
+      const newSet = new Set(selectedStickerIds);
+      if (newSet.has(id)) {
+          newSet.delete(id);
+      } else {
+          newSet.add(id);
+      }
+      setSelectedStickerIds(newSet);
+  };
+
+  const handlePrint = () => {
+      const stickersToPrint = isSelectionMode && selectedStickerIds.size > 0
+          ? allCollectedStickers.filter(s => selectedStickerIds.has(s.id))
+          : allCollectedStickers;
+
+      if (stickersToPrint.length === 0) {
+          alert("No stickers selected to print.");
+          return;
+      }
+
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+          alert("Please allow popups to print your stickers.");
+          return;
+      }
+
+      const stickersHtml = stickersToPrint.map(s => {
+          const imgUrl = convertDriveLink(s.imageUrl || s.dataUrl, 1000);
+          // Use a placeholder if no image, though collected stickers usually have one.
+          if (!imgUrl && !(s as any).emoji) return '';
+          
+          const content = imgUrl 
+            ? `<img src="${imgUrl}" alt="${s.name}" crossorigin="anonymous"/>`
+            : `<div style="font-size: 40px;">${(s as any).emoji}</div>`;
+
+          return `
+            <div class="sticker-item">
+                <div class="sticker-img-container">
+                    ${content}
+                </div>
+                <div class="sticker-name">${s.name || 'Sticker'}</div>
+            </div>
+          `;
+      }).join('');
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>${student.name}'s Sticker Collection</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
+              @page { 
+                size: A4; 
+                margin: 15mm; 
+              }
+              body { 
+                font-family: 'Nunito', sans-serif; 
+                background: white; 
+                margin: 0;
+                padding: 0;
+              }
+              .header-section {
+                text-align: center;
+                margin-bottom: 20px;
+              }
+              h1 { 
+                color: #333; 
+                margin: 0 0 5px 0; 
+                font-size: 24px;
+              }
+              p { 
+                color: #666; 
+                margin: 0; 
+                font-size: 14px; 
+              }
+              .sticker-grid { 
+                display: grid; 
+                grid-template-columns: repeat(3, 1fr); 
+                gap: 15px; 
+                width: 100%;
+              }
+              .sticker-item { 
+                border: 2px dashed #cbd5e1; 
+                padding: 15px; 
+                text-align: center; 
+                border-radius: 16px;
+                page-break-inside: avoid;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                aspect-ratio: 1/1;
+                background: #fff;
+              }
+              .sticker-img-container {
+                flex: 1;
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+              }
+              .sticker-item img { 
+                max-width: 100%; 
+                max-height: 100%; 
+                object-fit: contain; 
+                filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+              }
+              .sticker-name {
+                margin-top: 10px;
+                font-size: 12px;
+                color: #64748b;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+              }
+              @media print {
+                .no-print { display: none !important; }
+                body { -webkit-print-color-adjust: exact; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="no-print" style="text-align: center; margin-bottom: 20px; padding: 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                <button onclick="window.print()" style="background: #6366f1; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">🖨️ Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: white; color: #64748b; border: 1px solid #cbd5e1; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-left: 10px;">Close</button>
+                <p style="margin-top: 10px; font-size: 12px; color: #94a3b8;">Tip: Select "Save as PDF" in the print dialog for best quality.</p>
+            </div>
+            <div class="header-section">
+                <h1>${student.name}'s Sticker Collection</h1>
+                <p>${isSelectionMode ? `Selected ${stickersToPrint.length} stickers` : `Collected ${allCollectedStickers.length} stickers`}</p>
+            </div>
+            <div class="sticker-grid">
+              ${stickersHtml}
+            </div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
   };
 
   const handlePurchase = async (stickerId: string, cost: number) => {
@@ -324,7 +469,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                             }
 
                                             return (
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-6">
                                                     {filteredItems.map(item => {
                                                         const isOwned = ownedIds.includes(item.id);
                                                         const canAfford = student.points >= item.cost;
@@ -345,7 +490,7 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                                                     <img 
                                                                         src={displayImage} 
                                                                         alt={item.name} 
-                                                                        className={`w-full h-full object-contain p-2 transition-transform duration-300 group-hover:scale-110 
+                                                                        className={`w-full h-full object-contain p-1 transition-transform duration-300 group-hover:scale-110 
                                                                             ${!isOwned ? 'blur-[2px] grayscale opacity-60' : ''}`} 
                                                                     />
                                                                     
@@ -425,6 +570,37 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
                                 <span className={`text-2xl mb-1 ${isRefreshing ? 'animate-spin' : ''}`}>🔄</span>
                                 <span className="text-[10px] font-bold uppercase tracking-wider">Sync</span>
                             </button>
+
+                            {!isSelectionMode ? (
+                                <button 
+                                    onClick={() => setIsSelectionMode(true)}
+                                    className="w-14 h-14 rounded-2xl bg-indigo-500/80 backdrop-blur-sm border border-white/10 flex flex-col items-center justify-center text-white hover:bg-indigo-600 transition-all shadow-lg"
+                                    title="Select to Print"
+                                >
+                                    <span className="text-2xl mb-1">🖨️</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">Print</span>
+                                </button>
+                            ) : (
+                                <>
+                                    <button 
+                                        onClick={handlePrint}
+                                        disabled={selectedStickerIds.size === 0}
+                                        className="w-14 h-14 rounded-2xl bg-emerald-500/80 backdrop-blur-sm border border-white/10 flex flex-col items-center justify-center text-white hover:bg-emerald-600 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Print Selected"
+                                    >
+                                        <span className="text-xl mb-1 font-black">{selectedStickerIds.size}</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider">Print</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => { setIsSelectionMode(false); setSelectedStickerIds(new Set()); }}
+                                        className="w-14 h-14 rounded-2xl bg-slate-500/80 backdrop-blur-sm border border-white/10 flex flex-col items-center justify-center text-white hover:bg-slate-600 transition-all shadow-lg"
+                                        title="Cancel Selection"
+                                    >
+                                        <span className="text-2xl mb-1">✕</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider">Cancel</span>
+                                    </button>
+                                </>
+                            )}
                             
                             <div className="flex flex-col items-center gap-2 bg-black/30 backdrop-blur rounded-2xl p-2 shadow-lg border border-white/10 text-white">
                                 <button 
@@ -465,21 +641,31 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
 
                                         const displayImage = convertDriveLink(item.imageUrl || item.dataUrl);
                                         const rotate = [-2, 1.5, -1, 2, -1.5, 1][(bookPage * 6 + i) % 6];
+                                        const isSelected = isSelectionMode && selectedStickerIds.has(item.id);
                                         
                                         return (
                                             <div 
                                                 key={`${item.id}-${i}`}
-                                                onClick={() => setPreviewItem(item)}
-                                                className="relative cursor-pointer group flex items-center justify-center p-2 transition-transform duration-300 hover:scale-105 hover:z-20"
-                                                style={{ transform: `rotate(${rotate}deg)` }}
+                                                onClick={() => {
+                                                    if (isSelectionMode) toggleSelection(item.id);
+                                                    else setPreviewItem(item);
+                                                }}
+                                                className={`relative cursor-pointer group flex items-center justify-center p-2 transition-transform duration-300 ${!isSelectionMode && 'hover:scale-105 hover:z-20'}`}
+                                                style={{ transform: `rotate(${rotate}deg) ${isSelected ? 'scale(0.95)' : ''}` }}
                                             >
-                                                <div className="bg-white p-3 pb-8 shadow-md border border-stone-200 w-full h-full flex flex-col items-center transform transition-shadow group-hover:shadow-2xl">
+                                                <div className={`bg-white p-3 pb-8 shadow-md border w-full h-full flex flex-col items-center transform transition-all ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-500/50 shadow-xl' : 'border-stone-200 group-hover:shadow-2xl'}`}>
                                                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-8 bg-white/40 backdrop-blur-sm border-l border-r border-white/60 shadow-sm transform -rotate-1 z-10 opacity-70"></div>
                                                     <div className="flex-1 w-full bg-stone-100 overflow-hidden flex items-center justify-center relative border border-stone-100">
                                                         {item.imageUrl || item.dataUrl ? (
                                                             <img src={displayImage} alt={item.name} className="max-w-full max-h-full object-contain" />
                                                         ) : (
                                                             <div className="text-5xl">{(item as any).emoji}</div>
+                                                        )}
+                                                        
+                                                        {isSelectionMode && (
+                                                            <div className={`absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center shadow-md border-2 border-white transition-all ${isSelected ? 'bg-indigo-500 text-white scale-110' : 'bg-white text-slate-300'}`}>
+                                                                {isSelected ? '✓' : '○'}
+                                                            </div>
                                                         )}
                                                     </div>
                                                     <div className="absolute bottom-2 left-0 right-0 text-center font-serif-sc text-stone-600 font-bold text-xs truncate px-2">{item.name}</div>

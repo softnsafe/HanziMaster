@@ -1,5 +1,5 @@
 
-import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary, LoginLog, CalendarEvent, StoreItem, PointLogEntry, ClassGoal, ContributionLog, RewardRule } from '../types';
+import { PracticeRecord, Lesson, Student, AssignmentStatus, StudentAssignment, StudentSummary, LoginLog, CalendarEvent, StoreItem, PointLogEntry, ClassGoal, ContributionLog, RewardRule, ScriptType } from '../types';
 
 const STORAGE_KEY = 'hanzi_master_backend_url_v2';
 const DEMO_KEY = 'hanzi_master_demo_mode';

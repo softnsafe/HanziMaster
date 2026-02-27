@@ -1,20 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { Student, PracticeRecord, AppView, Lesson, PracticeMode, RewardRule } from './types';
-import { Button } from './components/Button';
 import { Dashboard } from './components/Dashboard';
 import { ProgressReport } from './components/ProgressReport';
 import { SetupModal } from './components/SetupModal';
-import { HanziPlayer } from './components/HanziPlayer';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { PinyinGame } from './components/PinyinGame';
 import { FillInBlanksGame } from './components/FillInBlanksGame';
 import { StoryBuilderGame } from './components/StoryBuilderGame';
+import { WritingGame } from './components/WritingGame';
 import { SupportWidget } from './components/SupportWidget';
 import { LoginBackground } from './components/LoginBackground';
 import { sheetService } from './services/sheetService';
 import { convertCharacter } from './utils/characterConverter';
-import { pinyinify } from './utils/pinyinUtils';
 import { useTracking } from './hooks/useTracking';
 
 const App: React.FC = () => {
@@ -36,8 +34,6 @@ const App: React.FC = () => {
   // Practice Queue State
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [practiceQueue, setPracticeQueue] = useState<string[]>([]);
-  const [queueIndex, setQueueIndex] = useState(0);
-  const [practiceCount, setPracticeCount] = useState(0); // 0, 1, 2, 3 (Done) for current character
   
   // UI State
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -317,8 +313,6 @@ const App: React.FC = () => {
     }
 
     setPracticeQueue(converted);
-    setQueueIndex(0);
-    setPracticeCount(0);
 
     if (mode === 'WRITING') {
         setCurrentView(AppView.PRACTICE_WRITING);
@@ -328,59 +322,6 @@ const App: React.FC = () => {
         setCurrentView(AppView.PRACTICE_FILL_IN_BLANKS);
     } else if (mode === 'STORY_BUILDER') {
         setCurrentView(AppView.PRACTICE_STORY_BUILDER);
-    }
-  };
-
-  const handleNextWritingCharacter = () => {
-    const nextIndex = queueIndex + 1;
-    setQueueIndex(nextIndex);
-    setPracticeCount(0);
-    
-    // Check if this was the last character
-    if (nextIndex >= practiceQueue.length) {
-        // Trigger completion sync
-        if (currentLesson) {
-            completeAssignment(currentLesson.id);
-        }
-    }
-  };
-
-  const handleWritingRoundComplete = async () => {
-    const nextCount = practiceCount + 1;
-    setPracticeCount(nextCount);
-
-    if (nextCount >= 3) {
-        if (!student) return;
-
-        // 1. Prepare Record
-        const currentTarget = practiceQueue[queueIndex];
-        const newRecord: PracticeRecord = {
-            id: Date.now().toString(),
-            character: currentTarget,
-            score: 100,
-            details: "Practice completed.",
-            timestamp: Date.now(),
-            imageUrl: "",
-            type: 'WRITING'
-        };
-
-        // 2. Optimistic Update (Show in UI immediately)
-        setPracticeRecords(prev => [...prev, newRecord]);
-        
-        // 3. Save to Backend (Progress Only - Points are awarded on full completion now)
-        await performSave(async () => {
-            await sheetService.savePracticeRecord(student.name, newRecord);
-            
-            // Update assignment status to IN_PROGRESS if not already started
-            // SAFETY CHECK: Do NOT overwrite if we are on the very last character
-            // (because the completion logic will fire immediately after this)
-            if (currentLesson) {
-               const isLastCharacter = queueIndex === practiceQueue.length - 1;
-               if (!isLastCharacter) {
-                   await sheetService.updateAssignmentStatus(student.id, currentLesson.id, 'IN_PROGRESS');
-               }
-            }
-        });
     }
   };
   
@@ -565,92 +506,7 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderPracticeWriting = () => {
-    if (!currentLesson || queueIndex >= practiceQueue.length) {
-       // Completion View - Shows success message
-       return (
-         <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 animate-fade-in">
-           <div className="bg-white p-10 rounded-[2rem] shadow-xl text-center max-w-lg border border-indigo-50">
-             <div className="text-6xl mb-6 animate-bounce">🎉</div>
-             <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Lesson Complete!</h2>
-             <p className="text-slate-500 font-bold mb-8">You've practiced all characters.</p>
-             <Button onClick={() => setCurrentView(AppView.DASHBOARD)} className="w-full py-3 text-lg">
-                Return to Dashboard
-             </Button>
-           </div>
-         </div>
-       );
-    }
-    
-    // Check if character is mastered in this session
-    if (practiceCount >= 3) {
-        return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white p-8 rounded-[2rem] text-center shadow-2xl animate-bounce-in max-w-sm w-full mx-4">
-                    <div className="text-5xl mb-2">⭐</div>
-                    <h2 className="text-2xl font-extrabold text-slate-800 mb-4">Character Mastered!</h2>
-                    <Button onClick={handleNextWritingCharacter} className="w-full">Next Character →</Button>
-                </div>
-            </div>
-        );
-    }
 
-    const char = practiceQueue[queueIndex];
-    
-    return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
-             {/* Header */}
-             <div className="w-full max-w-4xl flex justify-between items-center mb-6">
-                 <Button variant="ghost" onClick={() => setCurrentView(AppView.DASHBOARD)}>Exit</Button>
-                 <div className="flex gap-4 text-sm font-bold text-slate-400 uppercase tracking-wider">
-                     <span>Char {queueIndex + 1}/{practiceQueue.length}</span>
-                     <span>Round {practiceCount + 1}/3</span>
-                 </div>
-             </div>
-
-             <div className="flex-1 w-full max-w-4xl flex flex-col items-center justify-center">
-                 {/* Single HanziPlayer Container */}
-                 <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col items-center w-full max-w-md">
-                     <div className="mb-4 text-center">
-                         <h3 className="text-slate-400 font-bold text-xs uppercase mb-1">Write the Character</h3>
-                         <p className="text-slate-500 font-bold text-sm mb-3">Follow the strokes. Click 'Watch' for help.</p>
-                         {dictionary[char] && (
-                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center gap-2 mb-2">
-                                 <div className="flex items-center gap-2">
-                                     <span className="text-xl font-bold text-indigo-600">{pinyinify(dictionary[char].pinyin)}</span>
-                                     {dictionary[char].audio && (
-                                         <button 
-                                             onClick={() => new Audio(dictionary[char].audio).play()}
-                                             className="p-1.5 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-200 transition-colors"
-                                             title="Play Audio"
-                                         >
-                                             🔊
-                                         </button>
-                                     )}
-                                 </div>
-                                 <span className="text-sm text-slate-600 font-medium text-center">{dictionary[char].definition}</span>
-                             </div>
-                         )}
-                     </div>
-                     
-                     <HanziPlayer 
-                        key={`${char}-${practiceCount}`}
-                        character={char} 
-                        initialMode="quiz"
-                        onComplete={() => {
-                            handleWritingRoundComplete();
-                            const toast = document.createElement('div');
-                            toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[60]';
-                            toast.innerText = 'Good Job!';
-                            document.body.appendChild(toast);
-                            setTimeout(() => toast.remove(), 2000);
-                        }}
-                     />
-                 </div>
-             </div>
-        </div>
-    );
-  };
 
   // Main Render Switch
   if (currentView === AppView.LOGIN) return renderLogin();
@@ -709,7 +565,14 @@ const App: React.FC = () => {
   }
 
   if (currentView === AppView.PRACTICE_WRITING && currentLesson) {
-     return renderPracticeWriting();
+     return (
+         <WritingGame 
+             initialCharacters={practiceQueue}
+             onComplete={handleGameComplete}
+             onExit={() => setCurrentView(AppView.DASHBOARD)}
+             onRecordResult={handleGenericRecord}
+         />
+     );
   }
 
   // Default Dashboard

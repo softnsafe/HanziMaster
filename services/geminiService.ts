@@ -726,3 +726,98 @@ export const gradeHandwriting = async (
     };
   }
 };
+
+export const generateQuizFromSentence = async (sentence: string): Promise<{
+    question: string;
+    answer: string;
+    options: string[];
+    pinyin: string;
+    translation: string;
+} | null> => {
+    try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: {
+                parts: [{
+                    text: `Create a fill-in-the-blank quiz from this Chinese sentence: "${sentence}".
+                    1. Identify a key word (noun or verb) to blank out.
+                    2. Create the question string with "___" replacing the key word.
+                    3. Provide the key word as the answer.
+                    4. Generate 3 plausible but incorrect distractors (same part of speech).
+                    5. Provide the full sentence pinyin.
+                    6. Provide the English translation.
+                    
+                    Return JSON:
+                    {
+                        "question": "Sentence with ___",
+                        "answer": "KeyWord",
+                        "options": ["KeyWord", "Distractor1", "Distractor2", "Distractor3"] (shuffled),
+                        "pinyin": "Full sentence pinyin",
+                        "translation": "English translation"
+                    }`
+                }]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        question: { type: Type.STRING },
+                        answer: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        pinyin: { type: Type.STRING },
+                        translation: { type: Type.STRING }
+                    },
+                    required: ["question", "answer", "options", "pinyin", "translation"]
+                }
+            }
+        });
+        
+        const text = response.text;
+        if (!text) throw new Error("No response");
+        return JSON.parse(cleanJson(text));
+    } catch (e) {
+        console.error("Error generating quiz:", e);
+        return null;
+    }
+};
+
+export const getSentenceMetadata = async (sentence: string): Promise<{
+    pinyin: string;
+    translation: string;
+} | null> => {
+    try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: {
+                parts: [{
+                    text: `Analyze this Chinese sentence: "${sentence}".
+                    Return JSON with:
+                    - pinyin: Full sentence pinyin with tone marks.
+                    - translation: English translation.
+                    `
+                }]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        pinyin: { type: Type.STRING },
+                        translation: { type: Type.STRING }
+                    },
+                    required: ["pinyin", "translation"]
+                }
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No response");
+        return JSON.parse(cleanJson(text));
+    } catch (e) {
+        console.error("Error getting sentence metadata:", e);
+        return null;
+    }
+};
