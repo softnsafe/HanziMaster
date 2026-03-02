@@ -462,32 +462,34 @@ const App: React.FC = () => {
             {loginError && (
                 <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold animate-bounce-in">
                     {loginError}
-                    <div className="mt-2 flex justify-center gap-2">
-                        <button 
-                            type="button"
-                            onClick={async () => {
-                                setLoginError('Testing connection...');
-                                const res = await sheetService.checkConnection();
-                                if (res.success) setLoginError(`✅ ${res.message}`);
-                                else setLoginError(`❌ ${res.message}`);
-                            }}
-                            className="text-xs bg-white border border-rose-200 px-3 py-1 rounded-lg hover:bg-rose-100 text-rose-700 font-bold shadow-sm"
-                        >
-                            Test Connection
-                        </button>
-                        {!isDemo && (
+                    {!loginError.includes('Incorrect Password') && (
+                        <div className="mt-2 flex justify-center gap-2">
                             <button 
                                 type="button"
-                                onClick={() => {
-                                    setIsDemo(true);
-                                    setLoginError('');
+                                onClick={async () => {
+                                    setLoginError('Testing connection...');
+                                    const res = await sheetService.checkConnection();
+                                    if (res.success) setLoginError(`✅ ${res.message}`);
+                                    else setLoginError(`❌ ${res.message}`);
                                 }}
-                                className="text-xs bg-purple-50 border border-purple-200 px-3 py-1 rounded-lg hover:bg-purple-100 text-purple-700 font-bold shadow-sm"
+                                className="text-xs bg-white border border-rose-200 px-3 py-1 rounded-lg hover:bg-rose-100 text-rose-700 font-bold shadow-sm"
                             >
-                                Try Demo
+                                Test Connection
                             </button>
-                        )}
-                    </div>
+                            {!isDemo && (
+                                <button 
+                                    type="button"
+                                    onClick={() => {
+                                        setIsDemo(true);
+                                        setLoginError('');
+                                    }}
+                                    className="text-xs bg-purple-50 border border-purple-200 px-3 py-1 rounded-lg hover:bg-purple-100 text-purple-700 font-bold shadow-sm"
+                                >
+                                    Try Demo
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
