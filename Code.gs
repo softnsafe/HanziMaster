@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.27.0)
+// HANZI MASTER BACKEND SCRIPT (v3.28.0)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.27.1'; 
+const VERSION = 'v3.28.0'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -145,6 +145,14 @@ function setup() {
     ruleSheet.setFrozenRows(1);
   }
 
+  // 12.5 ANNOUNCEMENTS
+  let annSheet = ss.getSheetByName('Announcements');
+  if (!annSheet) {
+    annSheet = ss.insertSheet('Announcements');
+    annSheet.appendRow(['ID', 'Title', 'Message', 'Date', 'TargetStudentIds', 'ReadBy']);
+    annSheet.setFrozenRows(1);
+  }
+
   // 13. DICTIONARY (Audio Library)
   let dictSheet = ss.getSheetByName('Dictionary');
   if (!dictSheet) {
@@ -233,6 +241,7 @@ function doGet(e) {
       else if (action === 'getRecentGoalContributions') return getRecentGoalContributions();
       else if (action === 'getRewardRules') return getRewardRules();
       else if (action === 'getDictionary') return getDictionary();
+      else if (action === 'getAnnouncements') return getAnnouncements(params.studentId);
       return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (err) { return response({status: 'error', message: err.toString()}); }
 }
@@ -275,6 +284,7 @@ function doPost(e) {
     else if (action === 'addToDictionary') return addToDictionary(data.payload);
     else if (action === 'deleteFromDictionary') return deleteFromDictionary(data.payload);
     else if (action === 'logActivity') return logActivity(data.payload);
+    else if (action === 'postAnnouncement') return postAnnouncement(data.payload);
     
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) { return response({status: 'error', message: 'Server Error: ' + error.toString()}); } 
@@ -1226,4 +1236,44 @@ function getAllStudentProgress(startDate, endDate) {
   }
   
   return response({ students: students });
+}
+
+function postAnnouncement(payload) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('Announcements');
+    if (!sheet) { setup(); sheet = ss.getSheetByName('Announcements'); }
+    
+    const id = 'ann-' + Date.now();
+    const date = new Date().toISOString();
+    const targets = payload.targetStudentIds ? JSON.stringify(payload.targetStudentIds) : '[]';
+    
+    sheet.appendRow([id, payload.title, payload.message, date, targets, '[]']);
+    return response({ status: 'success', id: id });
+}
+
+function getAnnouncements(studentId) {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Announcements');
+    if (!sheet) return response({ announcements: [] });
+    
+    const data = sheet.getDataRange().getValues();
+    const announcements = [];
+    
+    for (let i = 1; i < data.length; i++) {
+        const targets = data[i][4] ? JSON.parse(data[i][4]) : [];
+        // If targets is empty, it's for everyone. If not, check if studentId is in it.
+        if (targets.length === 0 || (studentId && targets.includes(String(studentId)))) {
+            announcements.push({
+                id: data[i][0],
+                title: data[i][1],
+                message: data[i][2],
+                date: data[i][3],
+                targetStudentIds: targets,
+                readBy: data[i][5] ? JSON.parse(data[i][5]) : []
+            });
+        }
+    }
+    // Sort by date descending
+    announcements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return response({ announcements: announcements });
 }

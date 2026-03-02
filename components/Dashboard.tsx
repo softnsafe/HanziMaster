@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Lesson, Student, StudentAssignment, PracticeMode, PointLogEntry, ClassGoal, RewardRule, ScriptType } from '../types';
+import { Lesson, Student, StudentAssignment, PracticeMode, PointLogEntry, ClassGoal, RewardRule, ScriptType, Announcement } from '../types';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { CalendarView } from './CalendarView';
@@ -34,6 +34,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0); 
   const [activeGoal, setActiveGoal] = useState<ClassGoal | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   
   // Sticker Store State
   const [showStore, setShowStore] = useState(false);
@@ -56,14 +58,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
     if (assignments.length === 0 || forceRefresh) setIsLoading(true);
     
     try {
-        const [lessons, statusList, , goals] = await Promise.all([
+        const [lessons, statusList, , goals, anns] = await Promise.all([
             sheetService.getAssignments(forceRefresh),
             sheetService.getAssignmentStatuses(student.id, forceRefresh),
             sheetService.getStoreItems(forceRefresh),
-            sheetService.getClassGoals(forceRefresh)
+            sheetService.getClassGoals(forceRefresh),
+            sheetService.getAnnouncements(student.id)
         ]);
         setAssignments(lessons);
         setStatuses(statusList);
+        setAnnouncements(anns.announcements || []);
         
         const active = goals.find(g => g.status === 'ACTIVE' || g.status === 'COMPLETED') || null;
         setActiveGoal(active);
@@ -76,6 +80,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
 
   useEffect(() => { 
       loadData(true); 
+      const saved = localStorage.getItem('dismissed_announcements');
+      if (saved) setDismissedIds(JSON.parse(saved));
   }, [student.id, student.points]);
   
   useEffect(() => { setLocalStudent(student); }, [student]);
@@ -164,9 +170,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   };
 
   const isGoalReached = activeGoal && activeGoal.current >= activeGoal.target;
+  const visibleAnnouncements = announcements.filter(a => !dismissedIds.includes(a.id));
 
   return (
     <div className="space-y-8 animate-fade-in pb-10 relative">
+      {/* Announcements */}
+      {visibleAnnouncements.length > 0 && (
+          <div className="space-y-4">
+              {visibleAnnouncements.map(ann => (
+                  <div key={ann.id} className="bg-gradient-to-r from-rose-500 to-orange-500 p-6 rounded-[2rem] shadow-lg text-white relative overflow-hidden animate-slide-down border-4 border-white/20">
+                      <div className="relative z-10">
+                          <div className="flex justify-between items-start mb-1">
+                              <span className="text-xs font-black bg-white text-orange-600 px-2 py-1 rounded-lg uppercase tracking-widest shadow-sm">Announcement</span>
+                              <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded-lg">{new Date(ann.date).toLocaleDateString()}</span>
+                          </div>
+                          <h3 className="text-2xl font-extrabold flex items-center gap-2 mb-2">📢 {ann.title}</h3>
+                          <p className="font-bold text-rose-50 text-lg leading-relaxed whitespace-pre-wrap">{ann.message}</p>
+                          <button 
+                            onClick={() => {
+                                const newIds = [...dismissedIds, ann.id];
+                                setDismissedIds(newIds);
+                                localStorage.setItem('dismissed_announcements', JSON.stringify(newIds));
+                            }}
+                            className="mt-4 bg-white text-rose-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-rose-50 transition-colors shadow-sm"
+                          >
+                              Dismiss
+                          </button>
+                      </div>
+                      {/* Decorative Circles */}
+                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
+                      <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-orange-500/20 rounded-full blur-xl"></div>
+                  </div>
+              ))}
+          </div>
+      )}
+
       {particles.length > 0 && (
           <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
               {particles.map((p) => (

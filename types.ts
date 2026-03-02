@@ -162,3 +162,12 @@ export interface GradingResult {
   feedback: string;
   corrections: string[];
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  date: string;
+  targetStudentIds: string[]; // IDs of students who should see this
+  readBy: string[]; // IDs of students who have read this
+}

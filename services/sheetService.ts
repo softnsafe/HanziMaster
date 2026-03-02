@@ -630,5 +630,21 @@ export const sheetService = {
       // Fire and forget - don't await response to avoid blocking UI
       postData('logActivity', { studentId, studentName, action, details, metadata }).catch(console.error);
       return { success: true };
+  },
+
+  async postAnnouncement(title: string, message: string, targetStudentIds: string[] = []) {
+      if (this.isDemoMode()) return { success: true, id: 'demo-ann-' + Date.now() };
+      return postData('postAnnouncement', { title, message, targetStudentIds });
+  },
+
+  async getAnnouncements(studentId?: string) {
+      if (this.isDemoMode()) return { announcements: [] };
+      const url = this.getUrl(); if (!url) return { announcements: [] };
+      try {
+          const query = studentId ? `&studentId=${studentId}` : '';
+          const response = await fetchWithRetry(`${url}?action=getAnnouncements${query}&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
+          const data = await parseResponse(response);
+          return data;
+      } catch(e) { console.error(e); return { announcements: [] }; }
   }
 };

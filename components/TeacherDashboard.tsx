@@ -16,7 +16,7 @@ interface TeacherDashboardProps {
   onResetTheme: () => void;
 }
 
-type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary';
+type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary' | 'announcements';
 
 // Client-side resizing optimized for uploads
 // const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => { ... } // Removed unused function
@@ -98,6 +98,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   // Homework State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
+
+  // Announcement State
+  const [annTitle, setAnnTitle] = useState('');
+  const [annMessage, setAnnMessage] = useState('');
+  const [annTargets, setAnnTargets] = useState<Set<string>>(new Set());
   const [desc, setDesc] = useState('');
   const [chars, setChars] = useState('');
   const [type, setType] = useState<'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUILDER'>('WRITING');
@@ -518,6 +523,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       await loadTabData();
   };
 
+  const handlePostAnnouncement = async () => {
+      if (!annTitle || !annMessage) return;
+      setIsSubmitting(true);
+      const result = await sheetService.postAnnouncement(annTitle, annMessage, Array.from(annTargets));
+      if (result.success) {
+          setLastSuccess("Announcement Posted!");
+          setAnnTitle('');
+          setAnnMessage('');
+          setAnnTargets(new Set());
+          setTimeout(() => setLastSuccess(''), 3000);
+      } else {
+          setLastError("Failed to post.");
+      }
+      setIsSubmitting(false);
+  };
+
   // --- Calendar Handlers ---
   const handleDateSelect = (date: Date) => {
       // Adjust for timezone offset to prevent date shifting
@@ -817,6 +838,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
               { id: 'rewards', label: 'Rewards', icon: '🎁' },
               { id: 'assignments', label: 'Library', icon: '📚' },
               { id: 'logs', label: 'Activity', icon: '🕒' },
+              { id: 'announcements', label: 'Announcements', icon: '📢' },
           ].map(tab => (
               <button 
                 key={tab.id} 
@@ -1328,6 +1350,61 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                           ))}
                       </tbody>
                   </table>
+              </div>
+          </div>
+      )}
+
+      {/* ANNOUNCEMENTS TAB */}
+      {activeTab === 'announcements' && (
+          <div className="max-w-3xl mx-auto bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+              <SectionHeader title="Post Announcement" subtitle="Send messages to students." />
+              <div className="space-y-6">
+                  <div>
+                      <InputLabel label="Title" />
+                      <input 
+                        value={annTitle} 
+                        onChange={e => setAnnTitle(e.target.value)} 
+                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold text-slate-900 outline-none focus:border-indigo-400" 
+                        placeholder="Important Update" 
+                      />
+                  </div>
+                  <div>
+                      <InputLabel label="Message" />
+                      <textarea 
+                        value={annMessage} 
+                        onChange={e => setAnnMessage(e.target.value)} 
+                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-900 outline-none focus:border-indigo-400" 
+                        placeholder="Details..." 
+                        rows={4} 
+                      />
+                  </div>
+                  
+                  <div>
+                      <InputLabel label="Target Students (Optional - Leave empty for all)" />
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto p-2 border-2 border-slate-100 rounded-xl">
+                          {studentData.map(s => (
+                              <div 
+                                key={s.id} 
+                                onClick={() => {
+                                    const newSet = new Set(annTargets);
+                                    if (newSet.has(s.id)) newSet.delete(s.id); else newSet.add(s.id);
+                                    setAnnTargets(newSet);
+                                }}
+                                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-center gap-2 ${annTargets.has(s.id) ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100 hover:border-slate-200'}`}
+                              >
+                                  <div className={`w-4 h-4 rounded-full border ${annTargets.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-slate-300'}`}></div>
+                                  <span className="font-bold text-slate-700 text-sm truncate">{s.name}</span>
+                              </div>
+                          ))}
+                      </div>
+                      <div className="mt-2 text-xs font-bold text-slate-400">
+                          {annTargets.size === 0 ? "Sending to ALL students" : `Selected ${annTargets.size} student(s)`}
+                      </div>
+                  </div>
+
+                  <Button onClick={handlePostAnnouncement} disabled={isSubmitting || !annTitle || !annMessage} className="w-full py-4 text-lg">
+                      {isSubmitting ? 'Posting...' : 'Post Announcement'}
+                  </Button>
               </div>
           </div>
       )}

@@ -164,20 +164,10 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-indigo-500 text-white p-6 rounded-[2rem] shadow-lg shadow-indigo-200">
+        <div className="bg-indigo-500 text-white p-6 rounded-[2rem] shadow-lg shadow-indigo-200 col-span-full md:col-span-1">
             <p className="opacity-80 font-bold text-sm uppercase">Tasks Done</p>
             <p className="text-5xl font-extrabold mt-2">
                 {statuses.filter(s => s.status === 'COMPLETED').length}
-            </p>
-        </div>
-        <div className="bg-sky-400 text-white p-6 rounded-[2rem] shadow-lg shadow-sky-200">
-            <p className="opacity-80 font-bold text-sm uppercase">Characters</p>
-            <p className="text-5xl font-extrabold mt-2">{records.length}</p>
-        </div>
-        <div className="bg-emerald-400 text-white p-6 rounded-[2rem] shadow-lg shadow-emerald-200">
-            <p className="opacity-80 font-bold text-sm uppercase">Score</p>
-            <p className="text-5xl font-extrabold mt-2">
-                {records.length > 0 ? Math.round(records.reduce((a,b) => a + b.score, 0) / records.length) : '-'}
             </p>
         </div>
       </div>
@@ -196,6 +186,20 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
                     const status = getStatus(lesson.id);
                     const { done, total, type } = getLessonProgress(lesson);
                     
+                    // Calculate completion date based on latest record timestamp
+                    let completedDate = null;
+                    if (status === 'COMPLETED' || done > 0) {
+                         const targets = lesson.characters.map(c => convertCharacter(c, student.scriptPreference));
+                         const relevantRecords = records.filter(r => 
+                            targets.includes(r.character) && 
+                            (r.type === lesson.type || (!r.type && lesson.type === 'WRITING'))
+                         );
+                         if (relevantRecords.length > 0) {
+                             const maxTime = Math.max(...relevantRecords.map(r => r.timestamp));
+                             completedDate = new Date(maxTime);
+                         }
+                    }
+
                     return (
                         <div key={lesson.id} className="p-6 hover:bg-slate-50 transition-colors">
                             <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-3">
@@ -205,7 +209,15 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
                                         {renderBadge(type)}
                                     </div>
                                     <div className="text-slate-400 text-sm font-medium">
-                                        {lesson.startDate ? parseLocalDate(lesson.startDate).toLocaleDateString() : ''} • {lesson.characters.length} items
+                                        {completedDate ? (
+                                            <span className="text-emerald-600 font-bold">
+                                                {status === 'COMPLETED' ? 'Finished' : 'Last practiced'} on {completedDate.toLocaleDateString()}
+                                            </span>
+                                        ) : (
+                                            <span>
+                                                {lesson.startDate ? `Assigned ${parseLocalDate(lesson.startDate).toLocaleDateString()}` : ''} • {lesson.characters.length} items
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                                 <div>
@@ -217,19 +229,21 @@ export const ProgressReport: React.FC<ProgressReportProps> = ({ student, records
                                 </div>
                             </div>
                             
-                            {/* Single Progress Bar based on Type */}
-                            <div className="mt-2">
-                                <div className={`flex justify-between text-xs font-bold ${getBarLabelColor(type)} mb-1 uppercase tracking-wider`}>
-                                    <span>Progress</span>
-                                    <span>{done}/{total}</span>
+                            {/* Only show progress bar if NOT completed */}
+                            {status !== 'COMPLETED' && (
+                                <div className="mt-2">
+                                    <div className={`flex justify-between text-xs font-bold ${getBarLabelColor(type)} mb-1 uppercase tracking-wider`}>
+                                        <span>Progress</span>
+                                        <span>{done}/{total}</span>
+                                    </div>
+                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`h-full rounded-full transition-all ${getBarColor(type)}`} 
+                                            style={{ width: `${(done / Math.max(total, 1)) * 100}%` }}
+                                        />
+                                    </div>
                                 </div>
-                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                    <div 
-                                        className={`h-full rounded-full transition-all ${getBarColor(type)}`} 
-                                        style={{ width: `${(done / Math.max(total, 1)) * 100}%` }}
-                                    />
-                                </div>
-                            </div>
+                            )}
                         </div>
                     );
                 })
