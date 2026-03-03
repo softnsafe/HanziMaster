@@ -137,8 +137,8 @@ export const WritingGame: React.FC<WritingGameProps> = ({
               <div className="flex flex-col items-center gap-4 mb-6 w-full">
                   {/* Stats Row */}
                   {charDetails && (
-                    <div className="flex gap-4 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100">
-                      {charDetails.pinyin && (
+                    <div className="flex gap-4 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 animate-fade-in">
+                      {charDetails.pinyin && charDetails.pinyin !== '?' && (
                           <>
                               <div className="flex flex-col items-center">
                                 <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
@@ -147,14 +147,18 @@ export const WritingGame: React.FC<WritingGameProps> = ({
                               <div className="w-px bg-sky-200"></div>
                           </>
                       )}
-                      <div className="flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Radical</span>
-                        <span className="text-xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
-                      </div>
-                      <div className="w-px bg-sky-200"></div>
+                      {charDetails.radical && charDetails.radical !== '?' && (
+                          <>
+                              <div className="flex flex-col items-center">
+                                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Radical</span>
+                                <span className="text-xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
+                              </div>
+                              <div className="w-px bg-sky-200"></div>
+                          </>
+                      )}
                       <div className="flex flex-col items-center">
                         <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
-                        <span className="text-xl font-bold text-sky-700">{charDetails.strokeCount}</span>
+                        <span className="text-xl font-bold text-sky-700">{charDetails.strokeCount > 0 ? charDetails.strokeCount : '-'}</span>
                       </div>
                     </div>
                   )}
@@ -165,6 +169,14 @@ export const WritingGame: React.FC<WritingGameProps> = ({
                 character={currentCharacter} 
                 initialMode="quiz"
                 onComplete={handleWritingComplete}
+                onDataLoaded={(data) => {
+                    setCharDetails(prev => {
+                        // If we have details, update stroke count
+                        if (prev) return { ...prev, strokeCount: data.strokeCount };
+                        // If no details yet (e.g. API slow/fail), init with what we have
+                        return { radical: '?', strokeCount: data.strokeCount, pinyin: '?' };
+                    });
+                }}
               />
             </div>
           </div>

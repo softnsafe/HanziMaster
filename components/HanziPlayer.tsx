@@ -10,6 +10,7 @@ interface HanziPlayerProps {
   onComplete?: () => void;
   pinyin?: string;
   overrideUrl?: string;
+  onDataLoaded?: (data: { strokeCount: number; radical?: string }) => void;
 }
 
 export const HanziPlayer: React.FC<HanziPlayerProps> = ({ 
@@ -17,7 +18,8 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
   initialMode = 'view',
   onComplete,
   pinyin,
-  overrideUrl
+  overrideUrl,
+  onDataLoaded
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const writerRef = useRef<HanziWriter | null>(null);
@@ -44,8 +46,11 @@ export const HanziPlayer: React.FC<HanziPlayerProps> = ({
         outlineColor: '#cbd5e1', // slate-300
         drawingWidth: 25, 
         strokeColor: '#334155', // slate-700
-        onLoadCharDataSuccess: () => {
+        onLoadCharDataSuccess: (data: any) => {
           setIsLoading(false);
+          if (onDataLoaded && data && data.strokes) {
+              onDataLoaded({ strokeCount: data.strokes.length });
+          }
           if (initialMode === 'quiz') startQuizInternal();
           else writerRef.current?.animateCharacter();
         },

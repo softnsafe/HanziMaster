@@ -479,6 +479,21 @@ export const getCharacterDetails = async (character: string): Promise<{
 
   } catch (error) {
     console.error("Error generating character details:", error);
+    
+    // Fallback: Try Dictionary for Pinyin
+    try {
+        const dict = await sheetService.getDictionary();
+        const pinyin = dict[character];
+        if (pinyin) {
+            return {
+                pinyin: pinyin,
+                definition: '',
+                radical: '?',
+                strokeCount: 0
+            };
+        }
+    } catch (e) {}
+
     return null;
   }
 };
