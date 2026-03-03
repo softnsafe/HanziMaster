@@ -462,7 +462,7 @@ const App: React.FC = () => {
             {loginError && (
                 <div className="text-rose-600 text-sm text-center bg-rose-50 p-3 rounded-xl border border-rose-100 font-bold animate-bounce-in">
                     {loginError}
-                    {!loginError.includes('Incorrect Password') && (
+                    {!loginError.toLowerCase().includes('incorrect password') && (
                         <div className="mt-2 flex justify-center gap-2">
                             <button 
                                 type="button"

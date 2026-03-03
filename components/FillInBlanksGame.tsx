@@ -90,7 +90,7 @@ export const FillInBlanksGame: React.FC<FillInBlanksGameProps> = ({ lesson, init
                 question, 
                 answer, 
                 options,
-                pinyin: metadata?.pinyin || '',
+                pinyin: metadata?.pinyin ? metadata.pinyin.join(' ') : '',
                 translation: metadata?.translation || '',
                 fullSentence
             });
