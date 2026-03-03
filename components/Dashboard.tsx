@@ -178,28 +178,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
       {visibleAnnouncements.length > 0 && (
           <div className="space-y-4">
               {visibleAnnouncements.map(ann => (
-                  <div key={ann.id} className="bg-gradient-to-r from-rose-500 to-orange-500 p-6 rounded-[2rem] shadow-lg text-white relative overflow-hidden animate-slide-down border-4 border-white/20">
+                  <div key={ann.id} className="bg-gradient-to-r from-emerald-400 to-emerald-600 p-4 rounded-2xl shadow-lg text-white relative overflow-hidden animate-slide-down border-2 border-white/20">
                       <div className="relative z-10">
                           <div className="flex justify-between items-start mb-1">
-                              <span className="text-xs font-black bg-white text-orange-600 px-2 py-1 rounded-lg uppercase tracking-widest shadow-sm">Announcement</span>
-                              <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded-lg">{new Date(ann.date).toLocaleDateString()}</span>
+                              <span className="text-[10px] font-black bg-white text-emerald-600 px-2 py-0.5 rounded-md uppercase tracking-widest shadow-sm">Announcement</span>
+                              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-md">{new Date(ann.date).toLocaleDateString()}</span>
                           </div>
-                          <h3 className="text-2xl font-extrabold flex items-center gap-2 mb-2">📢 {ann.title}</h3>
-                          <p className="font-bold text-rose-50 text-lg leading-relaxed whitespace-pre-wrap">{ann.message}</p>
+                          <h3 className="text-lg font-extrabold flex items-center gap-2 mb-1">📢 {ann.title}</h3>
+                          <p className="font-bold text-emerald-50 text-sm leading-relaxed whitespace-pre-wrap">{ann.message}</p>
                           <button 
                             onClick={() => {
                                 const newIds = [...dismissedIds, ann.id];
                                 setDismissedIds(newIds);
                                 localStorage.setItem('dismissed_announcements', JSON.stringify(newIds));
                             }}
-                            className="mt-4 bg-white text-rose-600 px-4 py-2 rounded-xl font-bold text-sm hover:bg-rose-50 transition-colors shadow-sm"
+                            className="mt-2 bg-white text-emerald-600 px-3 py-1 rounded-lg font-bold text-xs hover:bg-emerald-50 transition-colors shadow-sm"
                           >
                               Dismiss
                           </button>
                       </div>
                       {/* Decorative Circles */}
-                      <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
-                      <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-orange-500/20 rounded-full blur-xl"></div>
+                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+                      <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-emerald-500/20 rounded-full blur-xl"></div>
                   </div>
               ))}
           </div>
@@ -259,14 +259,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                 </div>
             </div>
             <div className="flex flex-wrap justify-center gap-3">
+                {announcements.some(a => dismissedIds.includes(a.id)) && (
+                    <Button 
+                        variant="outline" 
+                        onClick={() => {
+                            setDismissedIds([]);
+                            localStorage.removeItem('dismissed_announcements');
+                        }} 
+                        className="bg-emerald-500/20 border-emerald-300 text-emerald-100 hover:bg-emerald-500/40 font-bold"
+                    >
+                        📢 Announcements
+                    </Button>
+                )}
                 <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={() => {
                     if (!showCalendar) setCalendarRefreshTrigger(prev => prev + 1);
                     setShowCalendar(!showCalendar);
                 }}>
                     {showCalendar ? '📖 Homework' : '📅 School Calendar'}
-                </Button>
-                <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={onViewReport}>
-                    🏆 My Progress
                 </Button>
                 <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={onLogout}>
                     Logout
