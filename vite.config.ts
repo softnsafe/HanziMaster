@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     define: {
       // Provide empty string fallback for specific keys to prevent crashes
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
       'process.env.REACT_APP_BACKEND_URL': JSON.stringify(env.REACT_APP_BACKEND_URL || ''),
       'process.env.NODE_ENV': JSON.stringify(mode),
     },
