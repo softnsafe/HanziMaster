@@ -531,6 +531,48 @@ export const getSentencePinyin = async (sentence: string): Promise<string[]> => 
   }
 };
 
+export const getSentenceMetadata = async (sentence: string): Promise<{
+    pinyin: string[];
+    translation: string;
+} | null> => {
+    try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: {
+                parts: [{
+                    text: `Analyze this Chinese sentence: "${sentence}".
+                    Return JSON with:
+                    - pinyin: Array of pinyin strings for each character in the sentence (e.g. ["wǒ", "xǐ", "huān"]).
+                    - translation: English translation.
+                    `
+                }]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        pinyin: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        translation: { type: Type.STRING }
+                    },
+                    required: ["pinyin", "translation"]
+                }
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No response");
+        
+        const cleanText = cleanJson(text);
+        return JSON.parse(cleanText);
+
+    } catch (error) {
+        console.error("Error generating sentence metadata:", error);
+        return null;
+    }
+};
+
 export const getFlashcardData = async (character: string): Promise<Flashcard> => {
   try {
     const ai = getAI();
@@ -798,41 +840,4 @@ export const generateQuizFromSentence = async (sentence: string): Promise<{
     }
 };
 
-export const getSentenceMetadata = async (sentence: string): Promise<{
-    pinyin: string;
-    translation: string;
-} | null> => {
-    try {
-        const ai = getAI();
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: {
-                parts: [{
-                    text: `Analyze this Chinese sentence: "${sentence}".
-                    Return JSON with:
-                    - pinyin: Full sentence pinyin with tone marks.
-                    - translation: English translation.
-                    `
-                }]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        pinyin: { type: Type.STRING },
-                        translation: { type: Type.STRING }
-                    },
-                    required: ["pinyin", "translation"]
-                }
-            }
-        });
 
-        const text = response.text;
-        if (!text) throw new Error("No response");
-        return JSON.parse(cleanJson(text));
-    } catch (e) {
-        console.error("Error getting sentence metadata:", e);
-        return null;
-    }
-};

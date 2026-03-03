@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
 import { Lesson } from '../types';
 import { HanziPlayer } from './HanziPlayer';
-import { generateStoryBuilderImage, getCharacterDetails, getSentencePinyin, playPronunciation } from '../services/geminiService';
+import { generateStoryBuilderImage, getCharacterDetails, getSentenceMetadata, playPronunciation } from '../services/geminiService';
 import { pinyinify } from '../utils/pinyinUtils';
 
 interface StoryBuilderGameProps {
@@ -33,10 +33,11 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   const [hanziKey, setHanziKey] = useState(0);
 
   // Character Details state
-  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string } | null>(null);
+  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string } | null>(null);
 
-  // Sentence Pinyin state
+  // Sentence Metadata state
   const [sentencePinyin, setSentencePinyin] = useState<string[]>([]);
+  const [sentenceTranslation, setSentenceTranslation] = useState('');
 
   // Step 2: PINYIN_PHRASE state
   const [pinyinInput, setPinyinInput] = useState('');
@@ -99,15 +100,23 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       if (word) {
         getCharacterDetails(word).then(details => {
           if (details) {
-            setCharDetails({ radical: details.radical, strokeCount: details.strokeCount, pinyin: details.pinyin });
+            setCharDetails({ 
+                radical: details.radical, 
+                strokeCount: details.strokeCount, 
+                pinyin: details.pinyin,
+                definition: details.definition
+            });
           }
         });
       }
 
-      // Fetch sentence pinyin
+      // Fetch sentence metadata
       if (sent) {
-        getSentencePinyin(sent).then(pinyinArray => {
-          setSentencePinyin(pinyinArray);
+        getSentenceMetadata(sent).then(meta => {
+          if (meta) {
+            setSentencePinyin(meta.pinyin);
+            setSentenceTranslation(meta.translation);
+          }
         });
       }
 
@@ -276,6 +285,13 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 </div>
               )}
 
+              {charDetails?.definition && (
+                  <div className="w-full max-w-xs text-center bg-white/60 backdrop-blur-sm rounded-xl py-2 px-4 border border-sky-100 animate-fade-in shadow-sm mb-4">
+                      <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
+                      <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
+                  </div>
+              )}
+
               <HanziPlayer 
                 key={hanziKey}
                 character={targetWord} 
@@ -377,7 +393,10 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 <div className="absolute inset-0 shadow-inner pointer-events-none rounded-[2rem]"></div>
             </div>
 
-            <h3 className="text-3xl font-black text-sky-700 mb-6 drop-shadow-sm">Build the sentence!</h3>
+            <h3 className="text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>
+            {sentenceTranslation && (
+                <p className="text-xl font-bold text-slate-500 mb-6 italic">"{sentenceTranslation}"</p>
+            )}
             
             {/* Target Area */}
             <div className="bg-white/80 backdrop-blur-sm min-h-[140px] w-full rounded-[2.5rem] shadow-inner border-4 border-sky-200 mb-8 p-6 flex flex-wrap gap-4 items-center justify-center">

@@ -20,7 +20,7 @@ export const WritingGame: React.FC<WritingGameProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [practiceCount, setPracticeCount] = useState(0);
-  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string } | null>(null);
+  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string } | null>(null);
   const [hanziKey, setHanziKey] = useState(0);
 
   const currentCharacter = initialCharacters[currentIndex];
@@ -34,7 +34,8 @@ export const WritingGame: React.FC<WritingGameProps> = ({
           setCharDetails({ 
             radical: details.radical, 
             strokeCount: details.strokeCount,
-            pinyin: details.pinyin 
+            pinyin: details.pinyin,
+            definition: details.definition
           });
         }
       });
@@ -161,6 +162,13 @@ export const WritingGame: React.FC<WritingGameProps> = ({
                         <span className="text-xl font-bold text-sky-700">{charDetails.strokeCount > 0 ? charDetails.strokeCount : '-'}</span>
                       </div>
                     </div>
+                  )}
+                  
+                  {charDetails?.definition && (
+                      <div className="w-full max-w-xs text-center bg-white/60 backdrop-blur-sm rounded-xl py-2 px-4 border border-sky-100 animate-fade-in shadow-sm">
+                          <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
+                          <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
+                      </div>
                   )}
               </div>
 
