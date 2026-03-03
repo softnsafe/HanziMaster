@@ -128,11 +128,11 @@ export const WritingGame: React.FC<WritingGameProps> = ({
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 overflow-y-auto w-full">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 relative z-10 overflow-y-auto w-full">
           <div className="flex flex-col items-center text-center animate-slide-up max-w-md w-full">
-            <div className="bg-white/90 backdrop-blur-sm p-8 rounded-[3rem] shadow-2xl border-4 border-sky-100 mb-8 w-full flex flex-col items-center justify-center relative overflow-hidden">
+            <div className="bg-white/90 backdrop-blur-sm p-4 md:p-8 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-sky-100 mb-8 w-full flex flex-col items-center justify-center relative overflow-hidden">
               <div className="absolute -top-4 -right-4 text-6xl opacity-20 rotate-12">✍️</div>
-              <h3 className="text-2xl font-black text-sky-700 mb-6">Let's write this word!</h3>
+              <h3 className="text-xl md:text-2xl font-black text-sky-700 mb-4 md:mb-6">Let's write this word!</h3>
               
               {/* Character Details & Audio */}
               <div className="flex flex-col items-center gap-4 mb-6 w-full">

@@ -38,6 +38,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   // Sentence Metadata state
   const [sentencePinyin, setSentencePinyin] = useState<string[]>([]);
   const [sentenceTranslation, setSentenceTranslation] = useState('');
+  const [phrasePinyin, setPhrasePinyin] = useState('');
 
   // Step 2: PINYIN_PHRASE state
   const [pinyinInput, setPinyinInput] = useState('');
@@ -51,6 +52,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   // Step 4: BUILD_SENTENCE state
   const [shuffledWords, setShuffledWords] = useState<{word: string, id: string, origIdx: number}[]>([]);
   const [selectedWords, setSelectedWords] = useState<{word: string, id: string, origIdx: number}[]>([]);
+  const [legoFeedback, setLegoFeedback] = useState('');
 
   const currentItem = sentences[currentIndex];
 
@@ -82,8 +84,10 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       setHanziKey(prev => prev + 1);
       setPinyinInput('');
       setPinyinFeedback('');
+      setPhrasePinyin('');
       setAudioSaved(false);
       setSelectedWords([]);
+      setLegoFeedback('');
       setStoryImage(null);
       setCharDetails(null);
       setSentencePinyin([]);
@@ -106,8 +110,30 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 pinyin: details.pinyin,
                 definition: details.definition
             });
+            // Fallback phrase pinyin if phrase is just the word
+            if (phrs === word && details.pinyin) {
+                setPhrasePinyin(details.pinyin);
+            }
           }
         });
+      }
+
+      // Fetch phrase pinyin if different from word
+      if (phrs && phrs !== word) {
+          // Check dictionary first
+          if (dictionary[phrs]) {
+              setPhrasePinyin(dictionary[phrs].pinyin);
+          } else {
+              // Use API
+              getSentenceMetadata(phrs).then(meta => {
+                  if (meta && meta.pinyin) {
+                      // meta.pinyin is string[]
+                      setPhrasePinyin(meta.pinyin.join(' '));
+                  }
+              });
+          }
+      } else if (phrs === word && dictionary[phrs]) {
+          setPhrasePinyin(dictionary[phrs].pinyin);
       }
 
       // Fetch sentence metadata
@@ -173,13 +199,31 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   };
 
   const handleCheckPinyin = () => {
-    if (pinyinInput.trim().length > 0) {
-      setPinyinFeedback('Great job! 🌟');
-      setTimeout(() => {
-        handleNextStep();
-      }, 1000);
+    const input = pinyinInput.trim().toLowerCase().replace(/\s+/g, '');
+    
+    // If we have the correct pinyin, validate against it
+    if (phrasePinyin) {
+        const target = phrasePinyin.trim().toLowerCase().replace(/\s+/g, '');
+        const targetMarks = pinyinify(phrasePinyin).trim().toLowerCase().replace(/\s+/g, '');
+        
+        if (input === target || input === targetMarks) {
+            setPinyinFeedback('Great job! 🌟');
+            setTimeout(() => {
+                handleNextStep();
+            }, 1000);
+        } else {
+            setPinyinFeedback(`Incorrect. Try: ${phrasePinyin}`);
+        }
     } else {
-      setPinyinFeedback('Please type the pinyin.');
+        // Fallback if pinyin data is missing
+        if (input.length > 0) {
+            setPinyinFeedback('Good effort!');
+            setTimeout(() => {
+                handleNextStep();
+            }, 1000);
+        } else {
+            setPinyinFeedback('Please type the pinyin.');
+        }
     }
   };
 
@@ -212,15 +256,20 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
 
   const handleCheckLego = () => {
     if (selectedWords.map(w => w.word).join('') === sentenceChars.join('')) {
-      handleNextStep();
+      setLegoFeedback('Correct! 🎉');
+      setTimeout(() => handleNextStep(), 1000);
     } else {
-      setSelectedWords([]);
-      const wordObjects = sentenceChars.map((char, idx) => ({
-        word: char,
-        id: `${char}-${idx}`,
-        origIdx: idx
-      }));
-      setShuffledWords(wordObjects.sort(() => Math.random() - 0.5));
+      setLegoFeedback('Incorrect order. Try again!');
+      setTimeout(() => {
+          setLegoFeedback('');
+          setSelectedWords([]);
+          const wordObjects = sentenceChars.map((char, idx) => ({
+            word: char,
+            id: `${char}-${idx}`,
+            origIdx: idx
+          }));
+          setShuffledWords(wordObjects.sort(() => Math.random() - 0.5));
+      }, 1500);
     }
   };
 
@@ -258,29 +307,29 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         
         {step === 'PRACTICE_WORDS' && (
           <div className="flex flex-col items-center text-center animate-slide-up max-w-md w-full">
-            <div className="bg-white/90 backdrop-blur-sm p-8 rounded-[3rem] shadow-2xl border-4 border-sky-100 mb-8 w-full flex flex-col items-center justify-center relative overflow-hidden">
+            <div className="bg-white/90 backdrop-blur-sm p-4 md:p-8 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-sky-100 mb-8 w-full flex flex-col items-center justify-center relative overflow-hidden">
               <div className="absolute -top-4 -right-4 text-6xl opacity-20 rotate-12">✍️</div>
-              <h3 className="text-2xl font-black text-sky-700 mb-6">Let's write this word!</h3>
+              <h3 className="text-xl md:text-2xl font-black text-sky-700 mb-4 md:mb-6">Let's write this word!</h3>
               
               {charDetails && (
-                <div className="flex gap-4 mb-6 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100">
+                <div className="flex gap-2 md:gap-4 mb-4 md:mb-6 bg-sky-50 px-4 md:px-6 py-3 rounded-2xl border-2 border-sky-100 flex-wrap justify-center">
                   {charDetails.pinyin && (
                       <>
                           <div className="flex flex-col items-center">
-                            <span className="text-sm font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
-                            <span className="text-2xl font-bold text-sky-700">{pinyinify(charDetails.pinyin)}</span>
+                            <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
+                            <span className="text-xl md:text-2xl font-bold text-sky-700">{pinyinify(charDetails.pinyin)}</span>
                           </div>
-                          <div className="w-px bg-sky-200"></div>
+                          <div className="w-px bg-sky-200 hidden md:block"></div>
                       </>
                   )}
                   <div className="flex flex-col items-center">
-                    <span className="text-sm font-bold text-sky-400 uppercase tracking-wider">Radical</span>
-                    <span className="text-2xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
+                    <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Radical</span>
+                    <span className="text-xl md:text-2xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
                   </div>
-                  <div className="w-px bg-sky-200"></div>
+                  <div className="w-px bg-sky-200 hidden md:block"></div>
                   <div className="flex flex-col items-center">
-                    <span className="text-sm font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
-                    <span className="text-2xl font-bold text-sky-700">{charDetails.strokeCount}</span>
+                    <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
+                    <span className="text-xl md:text-2xl font-bold text-sky-700">{charDetails.strokeCount}</span>
                   </div>
                 </div>
               )}
@@ -288,7 +337,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
               {charDetails?.definition && (
                   <div className="w-full max-w-xs text-center bg-white/60 backdrop-blur-sm rounded-xl py-2 px-4 border border-sky-100 animate-fade-in shadow-sm mb-4">
                       <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
-                      <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
+                      <span className="text-sm md:text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
                   </div>
               )}
 
@@ -298,23 +347,23 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 initialMode="quiz" 
                 onComplete={handleHanziComplete} 
               />
-              <div className="mt-8 flex gap-2">
+              <div className="mt-6 md:mt-8 flex gap-2">
                 {[0, 1, 2].map(i => (
-                  <div key={i} className={`w-4 h-4 rounded-full ${i < practiceCount ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+                  <div key={i} className={`w-3 h-3 md:w-4 md:h-4 rounded-full ${i < practiceCount ? 'bg-emerald-400' : 'bg-slate-200'}`} />
                 ))}
               </div>
-              <span className="text-lg font-bold text-slate-400 mt-2">Practice {practiceCount + 1} of 3</span>
+              <span className="text-sm md:text-lg font-bold text-slate-400 mt-2">Practice {practiceCount + 1} of 3</span>
             </div>
           </div>
         )}
 
         {step === 'PINYIN_PHRASE' && (
           <div className="flex flex-col items-center text-center animate-slide-up max-w-lg w-full">
-            <div className="bg-white/90 backdrop-blur-sm p-10 rounded-[3rem] shadow-2xl border-4 border-amber-100 mb-8 w-full relative overflow-hidden">
+            <div className="bg-white/90 backdrop-blur-sm p-4 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-amber-100 mb-8 w-full relative overflow-hidden">
               <div className="absolute -top-4 -left-4 text-6xl opacity-20 -rotate-12">🔤</div>
-              <h3 className="text-2xl font-black text-amber-600 mb-8">Type the pinyin!</h3>
-              <div className="bg-amber-50 p-6 rounded-[2rem] border-2 border-amber-100 mb-8 flex flex-col items-center gap-4">
-                <span className="text-5xl font-serif-sc text-slate-800 font-bold">{phrases}</span>
+              <h3 className="text-xl md:text-2xl font-black text-amber-600 mb-4 md:mb-8">Type the pinyin!</h3>
+              <div className="bg-amber-50 p-4 md:p-6 rounded-[2rem] border-2 border-amber-100 mb-6 md:mb-8 flex flex-col items-center gap-4">
+                <span className="text-3xl md:text-5xl font-serif-sc text-slate-800 font-bold break-words max-w-full">{phrases}</span>
                 <button 
                     onClick={handlePlayAudio}
                     disabled={isPlayingAudio}
@@ -329,16 +378,16 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 value={pinyinInput}
                 onChange={(e) => setPinyinInput(e.target.value)}
                 placeholder="e.g. shui guo"
-                className="w-full px-6 py-4 text-2xl font-bold text-center bg-white border-4 border-amber-200 rounded-2xl focus:border-amber-400 outline-none mb-4 shadow-inner text-slate-700"
+                className="w-full px-4 md:px-6 py-3 md:py-4 text-xl md:text-2xl font-bold text-center bg-white border-4 border-amber-200 rounded-2xl focus:border-amber-400 outline-none mb-4 shadow-inner text-slate-700"
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && handleCheckPinyin()}
               />
               {pinyinFeedback && (
-                <div className={`text-xl font-black mb-4 animate-bounce ${pinyinFeedback.includes('Great') ? 'text-emerald-500' : 'text-rose-500'}`}>
+                <div className={`text-lg md:text-xl font-black mb-4 animate-bounce ${pinyinFeedback.includes('Great') ? 'text-emerald-500' : 'text-rose-500'}`}>
                   {pinyinFeedback}
                 </div>
               )}
-              <Button onClick={handleCheckPinyin} className="w-full text-xl py-4 rounded-2xl bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-200 text-white border-none">
+              <Button onClick={handleCheckPinyin} className="w-full text-lg md:text-xl py-3 md:py-4 rounded-2xl bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-200 text-white border-none">
                 Check Answer
               </Button>
             </div>
@@ -347,17 +396,17 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
 
         {step === 'RECORD_AUDIO' && (
           <div className="flex flex-col items-center text-center animate-slide-up max-w-lg w-full">
-            <div className="bg-white/90 backdrop-blur-sm p-10 rounded-[3rem] shadow-2xl border-4 border-rose-100 mb-8 w-full flex flex-col items-center relative overflow-hidden">
+            <div className="bg-white/90 backdrop-blur-sm p-4 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-rose-100 mb-8 w-full flex flex-col items-center relative overflow-hidden">
               <div className="absolute -bottom-4 -right-4 text-6xl opacity-20 rotate-12">🗣️</div>
-              <h3 className="text-2xl font-black text-rose-600 mb-8">Read it out loud!</h3>
-              <div className="bg-rose-50 p-6 rounded-[2rem] border-2 border-rose-100 mb-10 w-full">
-                <span className="text-5xl font-serif-sc text-slate-800 font-bold">{phrases}</span>
+              <h3 className="text-xl md:text-2xl font-black text-rose-600 mb-4 md:mb-8">Read it out loud!</h3>
+              <div className="bg-rose-50 p-4 md:p-6 rounded-[2rem] border-2 border-rose-100 mb-6 md:mb-10 w-full">
+                <span className="text-3xl md:text-5xl font-serif-sc text-slate-800 font-bold break-words max-w-full">{phrases}</span>
               </div>
               
               <button 
                 onClick={handleRecord}
                 disabled={isRecording || audioSaved}
-                className={`w-36 h-36 rounded-full flex items-center justify-center text-6xl transition-all duration-300 shadow-2xl border-4
+                className={`w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-6xl transition-all duration-300 shadow-2xl border-4
                   ${isRecording ? 'bg-rose-500 text-white animate-pulse scale-110 shadow-rose-300 border-rose-400' : 
                     audioSaved ? 'bg-emerald-500 text-white scale-100 shadow-emerald-200 border-emerald-400' : 
                     'bg-white text-rose-500 hover:bg-rose-50 hover:scale-105 shadow-rose-200 border-rose-200'}
@@ -365,7 +414,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
               >
                 {isRecording ? '🎙️' : audioSaved ? '✨' : '🎤'}
               </button>
-              <p className={`mt-6 text-xl font-black ${isRecording ? 'text-rose-500 animate-pulse' : audioSaved ? 'text-emerald-500' : 'text-slate-400'}`}>
+              <p className={`mt-4 md:mt-6 text-lg md:text-xl font-black ${isRecording ? 'text-rose-500 animate-pulse' : audioSaved ? 'text-emerald-500' : 'text-slate-400'}`}>
                 {isRecording ? 'Listening...' : audioSaved ? 'Awesome!' : 'Tap to Record'}
               </p>
             </div>
@@ -376,7 +425,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
           <div className="flex flex-col items-center text-center animate-slide-up max-w-3xl w-full">
             
             {/* Story Image Area */}
-            <div className="w-full max-w-xl aspect-video bg-white rounded-[2rem] shadow-xl border-4 border-white mb-8 overflow-hidden relative flex items-center justify-center group">
+            <div className="w-full max-w-xl aspect-video bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl border-4 border-white mb-6 md:mb-8 overflow-hidden relative flex items-center justify-center group">
                 {isGeneratingImage ? (
                     <div className="flex flex-col items-center text-sky-400">
                         <span className="text-4xl animate-spin mb-2">🪄</span>
@@ -390,17 +439,17 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                         <span>Picture unavailable</span>
                     </div>
                 )}
-                <div className="absolute inset-0 shadow-inner pointer-events-none rounded-[2rem]"></div>
+                <div className="absolute inset-0 shadow-inner pointer-events-none rounded-[1.5rem] md:rounded-[2rem]"></div>
             </div>
 
-            <h3 className="text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>
+            <h3 className="text-2xl md:text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>
             {sentenceTranslation && (
-                <p className="text-xl font-bold text-slate-500 mb-6 italic">"{sentenceTranslation}"</p>
+                <p className="text-lg md:text-xl font-bold text-slate-500 mb-4 md:mb-6 italic">"{sentenceTranslation}"</p>
             )}
             
             {/* Target Area */}
-            <div className="bg-white/80 backdrop-blur-sm min-h-[140px] w-full rounded-[2.5rem] shadow-inner border-4 border-sky-200 mb-8 p-6 flex flex-wrap gap-4 items-center justify-center">
-              {selectedWords.length === 0 && <span className="text-sky-300 font-black text-2xl opacity-50">Drag or tap words here</span>}
+            <div className="bg-white/80 backdrop-blur-sm min-h-[100px] md:min-h-[140px] w-full rounded-[2rem] md:rounded-[2.5rem] shadow-inner border-4 border-sky-200 mb-6 md:mb-8 p-4 md:p-6 flex flex-wrap gap-2 md:gap-4 items-center justify-center">
+              {selectedWords.length === 0 && <span className="text-sky-300 font-black text-xl md:text-2xl opacity-50">Drag or tap words here</span>}
               {selectedWords.map((item, idx) => {
                 const pinyin = sentencePinyin[item.origIdx] || '';
                 const isFirst = item.origIdx === 0;
@@ -408,19 +457,19 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                   <button 
                     key={`sel-${item.id}-${idx}`}
                     onClick={() => handleUndoWord(item, idx)}
-                    className={`flex flex-col items-center px-6 py-3 text-white rounded-2xl shadow-[0_6px_0_rgba(0,0,0,0.2)] hover:translate-y-1 hover:shadow-[0_2px_0_rgba(0,0,0,0.2)] transition-all animate-bounce-in border-2 border-white/20
+                    className={`flex flex-col items-center px-4 py-2 md:px-6 md:py-3 text-white rounded-2xl shadow-[0_4px_0_rgba(0,0,0,0.2)] md:shadow-[0_6px_0_rgba(0,0,0,0.2)] hover:translate-y-1 hover:shadow-[0_2px_0_rgba(0,0,0,0.2)] transition-all animate-bounce-in border-2 border-white/20
                         ${isFirst ? 'bg-rose-500' : 'bg-sky-500'}
                     `}
                   >
-                    {pinyin && <span className="text-sm font-bold text-white/80 mb-1">{pinyin}</span>}
-                    <span className="text-4xl font-serif-sc font-bold">{item.word}</span>
+                    {pinyin && <span className="text-xs md:text-sm font-bold text-white/80 mb-1">{pinyin}</span>}
+                    <span className="text-2xl md:text-4xl font-serif-sc font-bold">{item.word}</span>
                   </button>
                 );
               })}
             </div>
 
             {/* Source Area */}
-            <div className="flex flex-wrap gap-4 justify-center min-h-[100px]">
+            <div className="flex flex-wrap gap-2 md:gap-4 justify-center min-h-[80px] md:min-h-[100px]">
               {shuffledWords.map((item, idx) => {
                 const pinyin = sentencePinyin[item.origIdx] || '';
                 const isFirst = item.origIdx === 0;
@@ -428,24 +477,31 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                   <button 
                     key={`src-${item.id}-${idx}`}
                     onClick={() => handleSelectWord(item, idx)}
-                    className={`flex flex-col items-center px-6 py-3 bg-white border-4 rounded-2xl shadow-[0_6px_0_#e2e8f0] hover:translate-y-1 hover:shadow-[0_2px_0_#bae6fd] transition-all
+                    className={`flex flex-col items-center px-4 py-2 md:px-6 md:py-3 bg-white border-4 rounded-2xl shadow-[0_4px_0_#e2e8f0] md:shadow-[0_6px_0_#e2e8f0] hover:translate-y-1 hover:shadow-[0_2px_0_#bae6fd] transition-all
                         ${isFirst ? 'text-rose-600 border-rose-200 hover:border-rose-400' : 'text-slate-700 border-slate-200 hover:border-sky-400 hover:text-sky-600'}
                     `}
                   >
-                    {pinyin && <span className="text-sm font-bold text-slate-400 mb-1">{pinyin}</span>}
-                    <span className="text-4xl font-serif-sc font-bold">{item.word}</span>
+                    {pinyin && <span className="text-xs md:text-sm font-bold text-slate-400 mb-1">{pinyin}</span>}
+                    <span className="text-2xl md:text-4xl font-serif-sc font-bold">{item.word}</span>
                   </button>
                 );
               })}
             </div>
 
             {shuffledWords.length === 0 && (
-              <Button 
-                onClick={handleCheckLego}
-                className="mt-12 w-full max-w-md text-2xl py-5 rounded-[2rem] shadow-[0_8px_0_#059669] bg-emerald-500 hover:bg-emerald-600 hover:translate-y-2 hover:shadow-none transition-all text-white font-black border-none"
-              >
-                Check Answer ✨
-              </Button>
+              <>
+                {legoFeedback && (
+                    <div className={`text-xl font-black mb-4 animate-bounce ${legoFeedback.includes('Correct') ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {legoFeedback}
+                    </div>
+                )}
+                <Button 
+                    onClick={handleCheckLego}
+                    className="mt-4 w-full max-w-md text-2xl py-5 rounded-[2rem] shadow-[0_8px_0_#059669] bg-emerald-500 hover:bg-emerald-600 hover:translate-y-2 hover:shadow-none transition-all text-white font-black border-none"
+                >
+                    Check Answer ✨
+                </Button>
+              </>
             )}
           </div>
         )}
