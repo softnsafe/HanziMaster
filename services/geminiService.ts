@@ -4,9 +4,11 @@ import { GradingResult, Flashcard } from '../types';
 import { sheetService } from './sheetService';
 import { convertAudioDriveLink } from '../utils/stickerData';
 import { convertCharacter } from '../utils/characterConverter';
+import { toneToNumber } from '../utils/pinyinUtils';
 
 // Lazy initialization of AI instance
 let aiInstance: GoogleGenAI | null = null;
+// ... (rest of file)
 
 const getAI = (): GoogleGenAI => {
   if (!aiInstance) {
@@ -26,6 +28,38 @@ const cleanJson = (text: string): string => {
         cleaned = cleaned.replace(/^```(json)?/, '').replace(/```$/, '');
     }
     return cleaned.trim();
+};
+
+// Helper to handle rate limits with retry
+const callWithRetry = async <T>(
+    fn: () => Promise<T>, 
+    retries = 3, 
+    baseDelay = 2000
+): Promise<T> => {
+    try {
+        return await fn();
+    } catch (error: any) {
+        const isRateLimit = error?.status === 429 || error?.code === 429 || error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
+        
+        if (retries > 0 && isRateLimit) {
+            let waitTime = baseDelay;
+            
+            // Try to parse wait time from error message
+            // "Please retry in 29.51807637s."
+            const match = error?.message?.match(/retry in ([\d.]+)s/);
+            if (match && match[1]) {
+                waitTime = Math.ceil(parseFloat(match[1]) * 1000) + 500; // Add 500ms buffer
+            } else {
+                // Exponential backoff if no specific time given
+                waitTime = baseDelay * 2;
+            }
+            
+            console.warn(`Rate limited. Retrying in ${waitTime}ms... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            return callWithRetry(fn, retries - 1, waitTime);
+        }
+        throw error;
+    }
 };
 
 // Helper to play audio and return promise that resolves on success/fail
@@ -112,7 +146,34 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       console.warn("Dictionary lookup failed", e);
   }
 
-  // 3. Try Local File Fallback (e.g. /audio/hao3.mp3 or .m4a)
+  // 3. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound)
+  if (pinyin) {
+      // Convert tone marks to numbered pinyin (e.g. "nǐ hǎo" -> "ni3 hao3")
+      const numberedPinyin = toneToNumber(pinyin);
+      const syllables = numberedPinyin.toLowerCase().split(/\s+/);
+      
+      let allSuccess = true;
+      
+      // Play sequentially
+      for (const syllable of syllables) {
+          // Clean syllable (remove punctuation, keep alphanumeric)
+          const cleanSyllable = syllable.replace(/[^a-z0-9ü]/g, '');
+          if (!cleanSyllable) continue;
+          
+          const cdnUrl = `https://cdn.jsdelivr.net/gh/davinfifield/mp3-chinese-pinyin-sound/mp3/${cleanSyllable}.mp3`;
+          const success = await playAudioUrl(cdnUrl);
+          if (!success) {
+              allSuccess = false;
+              // If one fails, maybe we should stop? Or continue?
+              // If it's a sentence, missing one word is bad.
+              // But let's try to play what we can.
+          }
+      }
+      
+      if (allSuccess && syllables.length > 0) return;
+  }
+
+  // 4. Try Local File Fallback (Legacy)
   if (pinyin) {
       // Clean pinyin (remove spaces, lowercase)
       const cleanPinyin = pinyin.toLowerCase().replace(/\s+/g, '');
@@ -173,7 +234,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
 export const generateLobbyBackground = async (): Promise<string | null> => {
   try {
     const ai = getAI();
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
@@ -187,7 +248,7 @@ export const generateLobbyBackground = async (): Promise<string | null> => {
           aspectRatio: "16:9",
         }
       },
-    });
+    }));
 
     const parts = response.candidates?.[0]?.content?.parts;
     if (parts) {
@@ -321,7 +382,7 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
         config.imageConfig.imageSize = "1K";
     }
 
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: model,
       contents: {
         parts: [
@@ -331,7 +392,7 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
         ],
       },
       config: config,
-    });
+    }));
 
     const parts = response.candidates?.[0]?.content?.parts;
     if (parts) {
@@ -353,7 +414,7 @@ export const generateSticker = async (prompt: string, modelType: 'FAST' | 'QUALI
 export const generateStoryBuilderImage = async (sentence: string): Promise<string | null> => {
   try {
     const ai = getAI();
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
@@ -367,7 +428,7 @@ export const generateStoryBuilderImage = async (sentence: string): Promise<strin
           aspectRatio: "16:9",
         }
       },
-    });
+    }));
 
     const parts = response.candidates?.[0]?.content?.parts;
     if (parts) {
@@ -394,7 +455,7 @@ export const generateDictionaryEntry = async (character: string): Promise<{
   try {
     const ai = getAI();
     // Using gemini-3-flash-preview for fast dictionary lookup
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [{
@@ -420,7 +481,7 @@ export const generateDictionaryEntry = async (character: string): Promise<{
           required: ["pinyin", "definition", "simplified", "traditional"]
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) throw new Error("No response");
@@ -443,7 +504,7 @@ export const getCharacterDetails = async (character: string): Promise<{
 } | null> => {
   try {
     const ai = getAI();
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [{
@@ -469,7 +530,7 @@ export const getCharacterDetails = async (character: string): Promise<{
           required: ["pinyin", "definition", "radical", "strokeCount"]
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) throw new Error("No response");
@@ -501,7 +562,7 @@ export const getCharacterDetails = async (character: string): Promise<{
 export const getSentencePinyin = async (sentence: string): Promise<string[]> => {
   try {
     const ai = getAI();
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [{
@@ -517,7 +578,7 @@ export const getSentencePinyin = async (sentence: string): Promise<string[]> => 
           items: { type: Type.STRING }
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) throw new Error("No response");
@@ -537,7 +598,7 @@ export const getSentenceMetadata = async (sentence: string): Promise<{
 } | null> => {
     try {
         const ai = getAI();
-        const response = await ai.models.generateContent({
+        const response = await callWithRetry(() => ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: {
                 parts: [{
@@ -559,7 +620,7 @@ export const getSentenceMetadata = async (sentence: string): Promise<{
                     required: ["pinyin", "translation"]
                 }
             }
-        });
+        }));
 
         const text = response.text;
         if (!text) throw new Error("No response");
@@ -577,7 +638,7 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
   try {
     const ai = getAI();
     // Using gemini-3-flash-preview for faster response time on simple text tasks
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [{
@@ -601,7 +662,7 @@ export const getFlashcardData = async (character: string): Promise<Flashcard> =>
           required: ["pinyin", "definition", "emoji"]
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) throw new Error("No response");
@@ -630,7 +691,7 @@ export const validatePinyinWithAI = async (character: string, userInput: string)
   try {
     const ai = getAI();
     // Use gemini-3-flash-preview for low latency validation
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [{
@@ -666,7 +727,7 @@ export const validatePinyinWithAI = async (character: string, userInput: string)
           required: ["isCorrect", "feedback", "standardPinyin"]
         }
       }
-    });
+    }));
 
     if (response.text) {
         // Sanitize JSON before parsing
@@ -684,7 +745,7 @@ export const generateDistractors = async (answer: string, context: string): Prom
     try {
         const ai = getAI();
         // Upgraded to Gemini 3 Pro for smarter distractor generation
-        const response = await ai.models.generateContent({
+        const response = await callWithRetry(() => ai.models.generateContent({
             model: "gemini-3-pro-preview",
             contents: {
                 parts: [{
@@ -702,7 +763,7 @@ export const generateDistractors = async (answer: string, context: string): Prom
                     items: { type: Type.STRING }
                 }
             }
-        });
+        }));
 
         const text = response.text;
         if (!text) return ["一", "不", "人"];
@@ -723,7 +784,7 @@ export const gradeHandwriting = async (
 
     const ai = getAI();
     // Upgraded to Gemini 3 Pro for superior vision analysis and grading feedback
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry(() => ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: {
         parts: [
@@ -766,7 +827,7 @@ export const gradeHandwriting = async (
           required: ["score", "feedback", "corrections"]
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) throw new Error("No response from Gemini");
@@ -793,7 +854,7 @@ export const generateQuizFromSentence = async (sentence: string): Promise<{
 } | null> => {
     try {
         const ai = getAI();
-        const response = await ai.models.generateContent({
+        const response = await callWithRetry(() => ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: {
                 parts: [{
@@ -829,7 +890,7 @@ export const generateQuizFromSentence = async (sentence: string): Promise<{
                     required: ["question", "answer", "options", "pinyin", "translation"]
                 }
             }
-        });
+        }));
         
         const text = response.text;
         if (!text) throw new Error("No response");

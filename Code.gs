@@ -149,8 +149,13 @@ function setup() {
   let annSheet = ss.getSheetByName('Announcements');
   if (!annSheet) {
     annSheet = ss.insertSheet('Announcements');
-    annSheet.appendRow(['ID', 'Title', 'Message', 'Date', 'TargetStudentIds', 'ReadBy']);
+    annSheet.appendRow(['ID', 'Title', 'Message', 'Date', 'TargetStudentIds', 'ReadBy', 'Metadata']);
     annSheet.setFrozenRows(1);
+  } else {
+    var headers = annSheet.getRange(1, 1, 1, annSheet.getLastColumn()).getValues()[0];
+    if (findColumnIndex(headers, ['metadata']) === -1) { 
+        annSheet.getRange(1, annSheet.getLastColumn() + 1).setValue('Metadata'); 
+    }
   }
 
   // 13. DICTIONARY (Audio Library)
@@ -285,6 +290,8 @@ function doPost(e) {
     else if (action === 'deleteFromDictionary') return deleteFromDictionary(data.payload);
     else if (action === 'logActivity') return logActivity(data.payload);
     else if (action === 'postAnnouncement') return postAnnouncement(data.payload);
+    else if (action === 'editAnnouncement') return editAnnouncement(data.payload);
+    else if (action === 'deleteAnnouncement') return deleteAnnouncement(data.payload);
     
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) { return response({status: 'error', message: 'Server Error: ' + error.toString()}); } 
@@ -1246,30 +1253,82 @@ function postAnnouncement(payload) {
     const id = 'ann-' + Date.now();
     const date = new Date().toISOString();
     const targets = payload.targetStudentIds ? JSON.stringify(payload.targetStudentIds) : '[]';
+    const metadata = payload.metadata ? JSON.stringify(payload.metadata) : '{}';
     
-    sheet.appendRow([id, payload.title, payload.message, date, targets, '[]']);
+    sheet.appendRow([id, payload.title, payload.message, date, targets, '[]', metadata]);
     return response({ status: 'success', id: id });
+}
+
+function editAnnouncement(payload) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('Announcements');
+    if (!sheet) return response({ status: 'error' });
+    
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    let metaIdx = findColumnIndex(headers, ['metadata']);
+    if (metaIdx === -1) {
+        metaIdx = sheet.getLastColumn();
+        sheet.getRange(1, metaIdx + 1).setValue('Metadata');
+    }
+
+    for(let i=1; i<data.length; i++) {
+        if(String(data[i][0]) === String(payload.id)) {
+            sheet.getRange(i+1, 2).setValue(payload.title);
+            sheet.getRange(i+1, 3).setValue(payload.message);
+            const targets = payload.targetStudentIds ? JSON.stringify(payload.targetStudentIds) : '[]';
+            sheet.getRange(i+1, 5).setValue(targets);
+            const metadata = payload.metadata ? JSON.stringify(payload.metadata) : '{}';
+            sheet.getRange(i+1, metaIdx + 1).setValue(metadata);
+            return response({ status: 'success' });
+        }
+    }
+    return response({ status: 'error', message: 'Announcement not found' });
+}
+
+function deleteAnnouncement(payload) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName('Announcements');
+    if (!sheet) return response({ status: 'error' });
+    
+    const data = sheet.getDataRange().getValues();
+    for(let i=1; i<data.length; i++) {
+        if(String(data[i][0]) === String(payload.id)) {
+            sheet.deleteRow(i+1);
+            return response({ status: 'success' });
+        }
+    }
+    return response({ status: 'error', message: 'Announcement not found' });
 }
 
 function getAnnouncements(studentId) {
     const ss = getSpreadsheet();
-    const sheet = ss.getSheetByName('Announcements');
+    let sheet = ss.getSheetByName('Announcements');
     if (!sheet) return response({ announcements: [] });
     
     const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return response({ announcements: [] });
+    
+    const headers = data[0];
+    const metaIdx = findColumnIndex(headers, ['metadata']);
     const announcements = [];
     
     for (let i = 1; i < data.length; i++) {
         const targets = data[i][4] ? JSON.parse(data[i][4]) : [];
-        // If targets is empty, it's for everyone. If not, check if studentId is in it.
-        if (targets.length === 0 || (studentId && targets.includes(String(studentId)))) {
+        // If no studentId (teacher), show all. If studentId, show if targeted or public.
+        if (!studentId || targets.length === 0 || targets.includes(String(studentId))) {
+            let metadata = {};
+            if (metaIdx > -1 && data[i][metaIdx]) {
+                try { metadata = JSON.parse(data[i][metaIdx]); } catch(e) {}
+            }
             announcements.push({
                 id: data[i][0],
                 title: data[i][1],
                 message: data[i][2],
                 date: data[i][3],
                 targetStudentIds: targets,
-                readBy: data[i][5] ? JSON.parse(data[i][5]) : []
+                readBy: data[i][5] ? JSON.parse(data[i][5]) : [],
+                metadata: metadata
             });
         }
     }

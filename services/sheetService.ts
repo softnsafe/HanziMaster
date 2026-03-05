@@ -632,9 +632,19 @@ export const sheetService = {
       return { success: true };
   },
 
-  async postAnnouncement(title: string, message: string, targetStudentIds: string[] = []) {
+  async postAnnouncement(title: string, message: string, targetStudentIds: string[] = [], metadata: any = {}) {
       if (this.isDemoMode()) return { success: true, id: 'demo-ann-' + Date.now() };
-      return postData('postAnnouncement', { title, message, targetStudentIds });
+      return postData('postAnnouncement', { title, message, targetStudentIds, metadata });
+  },
+
+  async editAnnouncement(id: string, title: string, message: string, targetStudentIds: string[] = [], metadata: any = {}) {
+      if (this.isDemoMode()) return { success: true };
+      return postData('editAnnouncement', { id, title, message, targetStudentIds, metadata });
+  },
+
+  async deleteAnnouncement(id: string) {
+      if (this.isDemoMode()) return { success: true };
+      return postData('deleteAnnouncement', { id });
   },
 
   async getAnnouncements(studentId?: string) {

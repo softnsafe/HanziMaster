@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
-import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, Sticker } from '../types';
+import { Lesson, StudentSummary, CalendarEvent, CalendarEventType, StoreItem, LoginLog, ClassGoal, Sticker, Announcement } from '../types';
 import { CalendarView } from './CalendarView';
 import { generateDictionaryEntry } from '../services/geminiService';
 import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
@@ -100,8 +100,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [title, setTitle] = useState('');
 
   // Announcement State
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [editingAnnId, setEditingAnnId] = useState<string | null>(null);
   const [annTitle, setAnnTitle] = useState('');
   const [annMessage, setAnnMessage] = useState('');
+  const [annImageUrl, setAnnImageUrl] = useState('');
+  const [annAudioUrl, setAnnAudioUrl] = useState('');
+  const [annVideoUrl, setAnnVideoUrl] = useState('');
   const [annTargets, setAnnTargets] = useState<Set<string>>(new Set());
   const [desc, setDesc] = useState('');
   const [chars, setChars] = useState('');
@@ -221,6 +226,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       else if (activeTab === 'dictionary') {
           const dict = await sheetService.getFullDictionary(true);
           setDictionary(dict);
+      }
+      else if (activeTab === 'announcements') {
+          const res = await sheetService.getAnnouncements();
+          setAnnouncements(res.announcements || []);
       }
   };
 
@@ -526,15 +535,58 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const handlePostAnnouncement = async () => {
       if (!annTitle || !annMessage) return;
       setIsSubmitting(true);
-      const result = await sheetService.postAnnouncement(annTitle, annMessage, Array.from(annTargets));
+      
+      const metadata = {
+          imageUrl: annImageUrl.trim(),
+          audioUrl: annAudioUrl.trim(),
+          videoUrl: annVideoUrl.trim()
+      };
+
+      let result;
+      if (editingAnnId) {
+          result = await sheetService.editAnnouncement(editingAnnId, annTitle, annMessage, Array.from(annTargets), metadata);
+      } else {
+          result = await sheetService.postAnnouncement(annTitle, annMessage, Array.from(annTargets), metadata);
+      }
+
       if (result.success) {
-          setLastSuccess("Announcement Posted!");
+          setLastSuccess(editingAnnId ? "Announcement Updated!" : "Announcement Posted!");
           setAnnTitle('');
           setAnnMessage('');
+          setAnnImageUrl('');
+          setAnnAudioUrl('');
+          setAnnVideoUrl('');
           setAnnTargets(new Set());
+          setEditingAnnId(null);
+          await loadTabData();
           setTimeout(() => setLastSuccess(''), 3000);
       } else {
-          setLastError("Failed to post.");
+          setLastError("Failed to save.");
+      }
+      setIsSubmitting(false);
+  };
+
+  const handleEditAnnouncement = (ann: Announcement) => {
+      setEditingAnnId(ann.id);
+      setAnnTitle(ann.title);
+      setAnnMessage(ann.message);
+      setAnnImageUrl(ann.metadata?.imageUrl || '');
+      setAnnAudioUrl(ann.metadata?.audioUrl || '');
+      setAnnVideoUrl(ann.metadata?.videoUrl || '');
+      setAnnTargets(new Set(ann.targetStudentIds || []));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+      if (!confirm("Delete this announcement?")) return;
+      setIsSubmitting(true);
+      const result = await sheetService.deleteAnnouncement(id);
+      if (result.success) {
+          setLastSuccess("Announcement Deleted!");
+          await loadTabData();
+          setTimeout(() => setLastSuccess(''), 3000);
+      } else {
+          setLastError("Failed to delete.");
       }
       setIsSubmitting(false);
   };
@@ -1379,6 +1431,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       />
                   </div>
                   
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                          <InputLabel label="Image URL (Optional)" />
+                          <input 
+                            value={annImageUrl} 
+                            onChange={e => setAnnImageUrl(e.target.value)} 
+                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-sm outline-none focus:border-indigo-400" 
+                            placeholder="https://..." 
+                          />
+                      </div>
+                      <div>
+                          <InputLabel label="Audio URL (Optional)" />
+                          <input 
+                            value={annAudioUrl} 
+                            onChange={e => setAnnAudioUrl(e.target.value)} 
+                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-sm outline-none focus:border-indigo-400" 
+                            placeholder="https://..." 
+                          />
+                      </div>
+                      <div>
+                          <InputLabel label="Video URL (Optional)" />
+                          <input 
+                            value={annVideoUrl} 
+                            onChange={e => setAnnVideoUrl(e.target.value)} 
+                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-sm outline-none focus:border-indigo-400" 
+                            placeholder="YouTube or MP4 link..." 
+                          />
+                      </div>
+                  </div>
+                  
                   <div>
                       <InputLabel label="Target Students (Optional - Leave empty for all)" />
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto p-2 border-2 border-slate-100 rounded-xl">
@@ -1403,8 +1485,44 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   </div>
 
                   <Button onClick={handlePostAnnouncement} disabled={isSubmitting || !annTitle || !annMessage} className="w-full py-4 text-lg">
-                      {isSubmitting ? 'Posting...' : 'Post Announcement'}
+                      {isSubmitting ? 'Saving...' : (editingAnnId ? 'Update Announcement' : 'Post Announcement')}
                   </Button>
+                  {editingAnnId && (
+                      <Button variant="ghost" onClick={() => {
+                          setEditingAnnId(null);
+                          setAnnTitle('');
+                          setAnnMessage('');
+                          setAnnImageUrl('');
+                          setAnnAudioUrl('');
+                          setAnnVideoUrl('');
+                          setAnnTargets(new Set());
+                      }} className="w-full mt-2">
+                          Cancel Edit
+                      </Button>
+                  )}
+
+                  {/* Existing Announcements List */}
+                  <div className="mt-12 pt-8 border-t-2 border-slate-100">
+                      <h4 className="font-extrabold text-slate-600 mb-4">Active Announcements ({announcements.length})</h4>
+                      <div className="space-y-4">
+                          {announcements.map(ann => (
+                              <div key={ann.id} className="p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-indigo-200 transition-all">
+                                  <div className="flex justify-between items-start mb-2">
+                                      <div>
+                                          <h5 className="font-bold text-slate-800">{ann.title}</h5>
+                                          <div className="text-xs font-bold text-slate-400">{new Date(ann.date).toLocaleDateString()} • {ann.targetStudentIds?.length ? `${ann.targetStudentIds.length} Recipients` : 'All Students'}</div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                          <button onClick={() => handleEditAnnouncement(ann)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg font-bold text-xs">Edit</button>
+                                          <button onClick={() => handleDeleteAnnouncement(ann.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg font-bold text-xs">Delete</button>
+                                      </div>
+                                  </div>
+                                  <p className="text-slate-600 text-sm whitespace-pre-wrap">{ann.message}</p>
+                              </div>
+                          ))}
+                          {announcements.length === 0 && <div className="text-center py-8 text-slate-400 font-bold">No announcements found.</div>}
+                      </div>
+                  </div>
               </div>
           </div>
       )}

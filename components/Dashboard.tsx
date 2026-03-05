@@ -6,6 +6,7 @@ import { sheetService } from '../services/sheetService';
 import { CalendarView } from './CalendarView';
 import { StickerStore } from './StickerStore';
 import { parseLocalDate } from '../utils/dateUtils';
+import { convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
 
 interface DashboardProps {
   student: Student;
@@ -26,7 +27,7 @@ interface Particle {
   angle: number;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, onViewReport, onLogout, onRefreshData, rewardRules = [], onUpdateStudent }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, onLogout, onRefreshData, rewardRules = [], onUpdateStudent }) => {
   const [assignments, setAssignments] = useState<Lesson[]>([]);
   const [statuses, setStatuses] = useState<StudentAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,6 +36,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0); 
   const [activeGoal, setActiveGoal] = useState<ClassGoal | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   
   // Sticker Store State
@@ -172,38 +174,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   const isGoalReached = activeGoal && activeGoal.current >= activeGoal.target;
   const visibleAnnouncements = announcements.filter(a => !dismissedIds.includes(a.id));
 
+  // Auto-open modal if there are unread announcements on load
+  useEffect(() => {
+      if (visibleAnnouncements.length > 0 && !showAnnouncementsModal) {
+          // Optional: we can auto-open, but maybe just let the pulsing button do the work
+          // setShowAnnouncementsModal(true);
+      }
+  }, [visibleAnnouncements.length]);
+
   return (
     <div className="space-y-8 animate-fade-in pb-10 relative">
-      {/* Announcements */}
-      {visibleAnnouncements.length > 0 && (
-          <div className="space-y-4">
-              {visibleAnnouncements.map(ann => (
-                  <div key={ann.id} className="bg-gradient-to-r from-emerald-400 to-emerald-600 p-4 rounded-2xl shadow-lg text-white relative overflow-hidden animate-slide-down border-2 border-white/20">
-                      <div className="relative z-10">
-                          <div className="flex justify-between items-start mb-1">
-                              <span className="text-[10px] font-black bg-white text-emerald-600 px-2 py-0.5 rounded-md uppercase tracking-widest shadow-sm">Announcement</span>
-                              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-md">{new Date(ann.date).toLocaleDateString()}</span>
-                          </div>
-                          <h3 className="text-lg font-extrabold flex items-center gap-2 mb-1">📢 {ann.title}</h3>
-                          <p className="font-bold text-emerald-50 text-sm leading-relaxed whitespace-pre-wrap">{ann.message}</p>
-                          <button 
-                            onClick={() => {
-                                const newIds = [...dismissedIds, ann.id];
-                                setDismissedIds(newIds);
-                                localStorage.setItem('dismissed_announcements', JSON.stringify(newIds));
-                            }}
-                            className="mt-2 bg-white text-emerald-600 px-3 py-1 rounded-lg font-bold text-xs hover:bg-emerald-50 transition-colors shadow-sm"
-                          >
-                              Dismiss
-                          </button>
-                      </div>
-                      {/* Decorative Circles */}
-                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-                      <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-emerald-500/20 rounded-full blur-xl"></div>
-                  </div>
-              ))}
-          </div>
-      )}
 
       {particles.length > 0 && (
           <div className="fixed inset-0 pointer-events-none z-[100] overflow-hidden">
@@ -259,16 +239,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                 </div>
             </div>
             <div className="flex flex-wrap justify-center gap-3">
-                {announcements.some(a => dismissedIds.includes(a.id)) && (
+                {announcements.length > 0 && (
                     <Button 
                         variant="outline" 
-                        onClick={() => {
-                            setDismissedIds([]);
-                            localStorage.removeItem('dismissed_announcements');
-                        }} 
-                        className="bg-emerald-500/20 border-emerald-300 text-emerald-100 hover:bg-emerald-500/40 font-bold"
+                        onClick={() => setShowAnnouncementsModal(true)} 
+                        className={`font-bold ${visibleAnnouncements.length > 0 ? 'bg-emerald-500 border-emerald-400 text-white animate-pulse shadow-lg shadow-emerald-500/50' : 'bg-emerald-500/20 border-emerald-300 text-emerald-100 hover:bg-emerald-500/40'}`}
                     >
-                        📢 Announcements
+                        📢 Announcements {visibleAnnouncements.length > 0 && `(${visibleAnnouncements.length})`}
                     </Button>
                 )}
                 <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={() => {
@@ -545,6 +522,72 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
             onClose={() => setShowStore(false)} 
             initialTab={storeTab}
           />
+      )}
+
+      {/* Announcements Modal */}
+      {showAnnouncementsModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+              <div className="bg-white rounded-[2rem] w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                      <h2 className="text-2xl font-extrabold text-slate-800 flex items-center gap-3">
+                          📢 Announcements
+                      </h2>
+                      <button onClick={() => setShowAnnouncementsModal(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors font-bold">✕</button>
+                  </div>
+                  <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/50">
+                      {announcements.map(ann => (
+                          <div key={ann.id} className={`bg-white p-6 rounded-2xl shadow-sm border-2 ${!dismissedIds.includes(ann.id) ? 'border-emerald-200 shadow-emerald-100' : 'border-slate-100'}`}>
+                              <div className="flex justify-between items-start mb-4">
+                                  <div>
+                                      <h3 className="text-xl font-extrabold text-slate-800 mb-1">{ann.title}</h3>
+                                      <div className="text-xs font-bold text-slate-400">{new Date(ann.date).toLocaleDateString()}</div>
+                                  </div>
+                                  {!dismissedIds.includes(ann.id) && (
+                                      <button 
+                                          onClick={() => {
+                                              const newIds = [...dismissedIds, ann.id];
+                                              setDismissedIds(newIds);
+                                              localStorage.setItem('dismissed_announcements', JSON.stringify(newIds));
+                                          }}
+                                          className="text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-200 transition-colors"
+                                      >
+                                          Mark as Read
+                                      </button>
+                                  )}
+                              </div>
+                              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap mb-4">{ann.message}</p>
+                              
+                              {/* Rich Media */}
+                              {ann.metadata?.imageUrl && (
+                                  <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                                      <img src={convertDriveLink(ann.metadata.imageUrl, 800)} alt="Announcement" className="w-full h-auto object-contain max-h-96" referrerPolicy="no-referrer" />
+                                  </div>
+                              )}
+                              {ann.metadata?.audioUrl && (
+                                  <div className="mb-4">
+                                      <audio controls src={convertAudioDriveLink(ann.metadata.audioUrl)} className="w-full h-10" />
+                                  </div>
+                              )}
+                              {ann.metadata?.videoUrl && (
+                                  <div className="mb-4">
+                                      <a 
+                                          href={ann.metadata.videoUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 font-bold rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+                                      >
+                                          ▶️ Watch Video
+                                      </a>
+                                  </div>
+                              )}
+                          </div>
+                      ))}
+                      {announcements.length === 0 && (
+                          <div className="text-center py-12 text-slate-400 font-bold">No announcements at this time.</div>
+                      )}
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

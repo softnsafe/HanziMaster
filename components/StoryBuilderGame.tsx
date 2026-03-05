@@ -3,7 +3,7 @@ import { Button } from './Button';
 import { Lesson } from '../types';
 import { HanziPlayer } from './HanziPlayer';
 import { generateStoryBuilderImage, getCharacterDetails, getSentenceMetadata, playPronunciation } from '../services/geminiService';
-import { pinyinify } from '../utils/pinyinUtils';
+import { pinyinify, comparePinyin } from '../utils/pinyinUtils';
 
 interface StoryBuilderGameProps {
   lesson: Lesson;
@@ -77,7 +77,10 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       setTargetWord(word);
       setPhrases(phrs);
 
-      const chars = sent.replace(/[.,!?，。！？]/g, '').split('');
+      // Strip ALL punctuation, symbols, and spaces. Only keep letters (including Chinese) and numbers.
+      // This prevents "invisible" blocks or confusing punctuation blocks (like quotes, commas, etc.)
+      const cleanSent = sent.replace(/[^\p{L}\p{N}]/gu, '');
+      const chars = [...cleanSent]; // Use spread syntax to handle surrogate pairs correctly
       setSentenceChars(chars);
       
       setPracticeCount(0);
@@ -191,22 +194,21 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   const handlePlayAudio = async () => {
       if (isPlayingAudio) return;
       setIsPlayingAudio(true);
-      // Try phrase audio first, then target word audio
-      const audioUrl = dictionary[phrases]?.audio || dictionary[targetWord]?.audio;
+      // Try phrase audio first. If phrase IS the target word, fallback to targetWord audio.
+      let audioUrl = dictionary[phrases]?.audio;
+      if (!audioUrl && phrases === targetWord) {
+          audioUrl = dictionary[targetWord]?.audio;
+      }
+      
       // Pass phrases as text, audioUrl as override, and pinyin if available
-      await playPronunciation(phrases, audioUrl);
+      await playPronunciation(phrases, audioUrl, phrasePinyin);
       setIsPlayingAudio(false);
   };
 
   const handleCheckPinyin = () => {
-    const input = pinyinInput.trim().toLowerCase().replace(/\s+/g, '');
-    
     // If we have the correct pinyin, validate against it
     if (phrasePinyin) {
-        const target = phrasePinyin.trim().toLowerCase().replace(/\s+/g, '');
-        const targetMarks = pinyinify(phrasePinyin).trim().toLowerCase().replace(/\s+/g, '');
-        
-        if (input === target || input === targetMarks) {
+        if (comparePinyin(pinyinInput, phrasePinyin)) {
             setPinyinFeedback('Great job! 🌟');
             setTimeout(() => {
                 handleNextStep();
@@ -216,7 +218,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         }
     } else {
         // Fallback if pinyin data is missing
-        if (input.length > 0) {
+        if (pinyinInput.trim().length > 0) {
             setPinyinFeedback('Good effort!');
             setTimeout(() => {
                 handleNextStep();
@@ -255,7 +257,11 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   };
 
   const handleCheckLego = () => {
-    if (selectedWords.map(w => w.word).join('') === sentenceChars.join('')) {
+    const attempt = selectedWords.map(w => w.word).join('');
+    const target = sentenceChars.join('');
+    console.log('StoryBuilder Check:', { attempt, target, match: attempt === target });
+
+    if (attempt === target) {
       setLegoFeedback('Correct! 🎉');
       setTimeout(() => handleNextStep(), 1000);
     } else {

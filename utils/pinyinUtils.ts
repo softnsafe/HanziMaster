@@ -9,11 +9,47 @@ const TONE_MARKS: Record<string, string> = {
     ü: 'ǖǘǚǜü',
 };
 
+const REVERSE_TONE_MAP: Record<string, {char: string, tone: number}> = {};
+// Build reverse map
+Object.keys(TONE_MARKS).forEach(base => {
+    const marks = TONE_MARKS[base];
+    for (let i = 0; i < marks.length; i++) {
+        REVERSE_TONE_MAP[marks[i]] = { char: base, tone: i + 1 };
+    }
+});
+
+export const toneToNumber = (text: string): string => {
+    if (!text) return "";
+    return text.split(/\s+/).map(word => {
+        let tone = 5;
+        let cleanWord = "";
+        let foundTone = false;
+        
+        for (const char of word) {
+            if (REVERSE_TONE_MAP[char]) {
+                cleanWord += REVERSE_TONE_MAP[char].char;
+                tone = REVERSE_TONE_MAP[char].tone;
+                foundTone = true;
+            } else {
+                cleanWord += char;
+            }
+        }
+        
+        if (foundTone && tone !== 5) {
+            return cleanWord + tone;
+        }
+        return cleanWord;
+    }).join(' ');
+};
+
 export const pinyinify = (text: string): string => {
     if (!text) return "";
     
+    // Preprocess: Insert space between number and following letter to handle "gei3ni3" -> "gei3 ni3"
+    const spacedText = text.replace(/([1-5])([a-zA-ZüÜ:vV])/g, '$1 $2');
+    
     // Split by spaces to handle phrases like "ni3 hao3"
-    return text.split(/\s+/).map(word => {
+    return spacedText.split(/\s+/).map(word => {
         // Extract tone number (1-5)
         const match = word.match(/^([a-zA-ZüÜ:vV]+)([1-5]?)$/);
         if (!match) return word;
@@ -55,7 +91,10 @@ export const pinyinify = (text: string): string => {
 export const comparePinyin = (input: string, target: string): boolean => {
     if (!input || !target) return false;
     
-    const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, '').replace(/v/g, 'ü').replace(/u:/g, 'ü');
+    // Normalize: remove punctuation, spaces, lowercase
+    const normalize = (s: string) => s.trim().toLowerCase()
+        .replace(/[.,!?，。！？\s]/g, '') // Strip punctuation and spaces
+        .replace(/v/g, 'ü').replace(/u:/g, 'ü');
     
     const cleanInput = normalize(input);
     const cleanTarget = normalize(target);
@@ -67,13 +106,12 @@ export const comparePinyin = (input: string, target: string): boolean => {
     if (cleanInput === cleanTarget) return true;
     
     // Cross match (hǎo === hao3) using pinyinify to standardize to marks
-    // We convert both to marks. If one is already marks, pinyinify usually keeps it (mostly).
-    // Note: pinyinify expects tone numbers. If input is 'hǎo', pinyinify('hǎo') returns 'hǎo'.
-    // If input is 'hao3', pinyinify('hao3') returns 'hǎo'.
-    // So pinyinify is a good normalizer to Tone Marks.
-    
-    const inputMarks = normalize(pinyinify(input));
-    const targetMarks = normalize(pinyinify(target));
+    // Treat punctuation as spaces for pinyinify to ensure words are split correctly
+    const inputForPinyinify = input.replace(/[.,!?，。！？]/g, ' ');
+    const targetForPinyinify = target.replace(/[.,!?，。！？]/g, ' ');
+
+    const inputMarks = normalize(pinyinify(inputForPinyinify)); 
+    const targetMarks = normalize(pinyinify(targetForPinyinify)); 
     
     return inputMarks === targetMarks;
 };

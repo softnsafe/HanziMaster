@@ -63,6 +63,39 @@ export const convertAudioDriveLink = (url: string): string => {
     return trimmed;
 };
 
+// Helper for Video Links (Google Drive requires /preview for iframes)
+export const convertVideoDriveLink = (url: string): string => {
+    if (!url) return '';
+    let trimmed = url.trim();
+    
+    if (trimmed.includes('drive.google.com') || trimmed.includes('docs.google.com')) {
+        let id = '';
+        const pathMatch = trimmed.match(/\/d\/([-\w]{25,})/);
+        if (pathMatch && pathMatch[1]) {
+            id = pathMatch[1];
+        }
+        if (!id) {
+            const paramMatch = trimmed.match(/[?&]id=([-\w]{25,})/);
+            if (paramMatch && paramMatch[1]) {
+                id = paramMatch[1];
+            }
+        }
+        if (id) {
+            return `https://drive.google.com/file/d/${id}/preview`;
+        }
+    }
+    
+    // Handle YouTube
+    if (trimmed.includes('youtube.com/watch?v=')) {
+        return trimmed.replace('watch?v=', 'embed/');
+    }
+    if (trimmed.includes('youtu.be/')) {
+        return trimmed.replace('youtu.be/', 'youtube.com/embed/');
+    }
+    
+    return trimmed;
+};
+
 export const STICKER_CATALOG: Sticker[] = [
   // Hardcoded stickers removed to rely purely on the "Store" sheet in the backend.
   // Add items via the Teacher Dashboard -> Rewards -> Manage Store.

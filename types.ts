@@ -170,4 +170,9 @@ export interface Announcement {
   date: string;
   targetStudentIds: string[]; // IDs of students who should see this
   readBy: string[]; // IDs of students who have read this
+  metadata?: {
+    imageUrl?: string;
+    audioUrl?: string;
+    videoUrl?: string;
+  };
 }
