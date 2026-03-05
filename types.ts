@@ -5,7 +5,7 @@ export type AssignmentStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
 
 export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUILDER';
 
-export type CalendarEventType = 'SCHOOL_DAY' | 'SPECIAL_EVENT' | 'NO_SCHOOL';
+export type CalendarEventType = 'SCHOOL_DAY' | 'SPECIAL_EVENT' | 'NO_SCHOOL' | 'HOLIDAY';
 
 export interface CalendarEvent {
   id: string;

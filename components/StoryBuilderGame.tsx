@@ -497,8 +497,11 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
             {shuffledWords.length === 0 && (
               <>
                 {legoFeedback && (
-                    <div className={`text-xl font-black mb-4 animate-bounce ${legoFeedback.includes('Correct') ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        {legoFeedback}
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in pointer-events-none">
+                        <div className={`text-6xl md:text-8xl font-black p-12 rounded-[3rem] shadow-2xl animate-bounce-in transform scale-110 border-8 border-white/50 flex items-center gap-4 ${legoFeedback.includes('Correct') ? 'bg-emerald-500 text-white rotate-3' : 'bg-rose-500 text-white -rotate-3'}`}>
+                            <span className="text-8xl filter drop-shadow-lg">{legoFeedback.includes('Correct') ? '🎉' : '🤔'}</span>
+                            <span className="filter drop-shadow-lg">{legoFeedback}</span>
+                        </div>
                     </div>
                 )}
                 <Button 

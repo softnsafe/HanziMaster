@@ -526,21 +526,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
 
       {/* Announcements Modal */}
       {showAnnouncementsModal && (
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-              <div className="bg-white rounded-[2rem] w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                      <h2 className="text-2xl font-extrabold text-slate-800 flex items-center gap-3">
-                          📢 Announcements
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+              <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up ring-8 ring-white/20">
+                  <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 p-8 flex justify-between items-center relative overflow-hidden">
+                      {/* Decorative circles */}
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                      <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/10 rounded-full -ml-10 -mb-10 blur-xl"></div>
+                      
+                      <h2 className="text-3xl font-black text-white flex items-center gap-4 relative z-10 drop-shadow-md tracking-tight">
+                          <span className="text-4xl animate-bounce-slow">📢</span> 
+                          Class Announcements
                       </h2>
-                      <button onClick={() => setShowAnnouncementsModal(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors font-bold">✕</button>
+                      <button 
+                        onClick={() => setShowAnnouncementsModal(false)} 
+                        className="w-12 h-12 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white transition-all font-bold backdrop-blur-sm relative z-10 hover:rotate-90 duration-300"
+                      >
+                        ✕
+                      </button>
                   </div>
-                  <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/50">
-                      {announcements.map(ann => (
-                          <div key={ann.id} className={`bg-white p-6 rounded-2xl shadow-sm border-2 ${!dismissedIds.includes(ann.id) ? 'border-emerald-200 shadow-emerald-100' : 'border-slate-100'}`}>
-                              <div className="flex justify-between items-start mb-4">
-                                  <div>
-                                      <h3 className="text-xl font-extrabold text-slate-800 mb-1">{ann.title}</h3>
-                                      <div className="text-xs font-bold text-slate-400">{new Date(ann.date).toLocaleDateString()}</div>
+                  
+                  <div className="p-8 overflow-y-auto flex-1 space-y-8 bg-slate-50/80">
+                      {announcements.map((ann, idx) => (
+                          <div 
+                            key={ann.id} 
+                            className={`bg-white p-8 rounded-[2rem] shadow-lg border-2 transition-all duration-300 hover:-translate-y-1 ${
+                                !dismissedIds.includes(ann.id) 
+                                ? 'border-indigo-200 shadow-indigo-100 ring-4 ring-indigo-50' 
+                                : 'border-slate-100 opacity-90 hover:opacity-100'
+                            }`}
+                            style={{ animationDelay: `${idx * 100}ms` }}
+                          >
+                              <div className="flex justify-between items-start mb-6">
+                                  <div className="flex-1 pr-4">
+                                      <h3 className="text-2xl font-extrabold text-slate-800 mb-2 leading-tight">{ann.title}</h3>
+                                      <div className="flex items-center gap-2 text-sm font-bold text-slate-400 uppercase tracking-wider">
+                                        <span>🗓️ {new Date(ann.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                        {!dismissedIds.includes(ann.id) && (
+                                            <span className="bg-rose-500 text-white px-2 py-0.5 rounded-full text-[10px] animate-pulse">NEW</span>
+                                        )}
+                                      </div>
                                   </div>
                                   {!dismissedIds.includes(ann.id) && (
                                       <button 
@@ -549,41 +573,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                                               setDismissedIds(newIds);
                                               localStorage.setItem('dismissed_announcements', JSON.stringify(newIds));
                                           }}
-                                          className="text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-200 transition-colors"
+                                          className="shrink-0 text-xs font-black bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl hover:bg-emerald-200 transition-colors flex items-center gap-1 shadow-sm hover:shadow-md transform active:scale-95"
                                       >
-                                          Mark as Read
+                                          <span>✓</span> Mark Read
                                       </button>
                                   )}
                               </div>
-                              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap mb-4">{ann.message}</p>
+                              
+                              <div className="prose prose-slate max-w-none mb-6">
+                                <p className="text-slate-600 text-lg leading-relaxed whitespace-pre-wrap font-medium">{ann.message}</p>
+                              </div>
                               
                               {/* Rich Media */}
-                              {ann.metadata?.imageUrl && (
-                                  <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
-                                      <img src={convertDriveLink(ann.metadata.imageUrl, 800)} alt="Announcement" className="w-full h-auto object-contain max-h-96" referrerPolicy="no-referrer" />
-                                  </div>
-                              )}
-                              {ann.metadata?.audioUrl && (
-                                  <div className="mb-4">
-                                      <audio controls src={convertAudioDriveLink(ann.metadata.audioUrl)} className="w-full h-10" />
-                                  </div>
-                              )}
-                              {ann.metadata?.videoUrl && (
-                                  <div className="mb-4">
-                                      <a 
-                                          href={ann.metadata.videoUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 font-bold rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
-                                      >
-                                          ▶️ Watch Video
-                                      </a>
-                                  </div>
+                              {(ann.metadata?.imageUrl || ann.metadata?.audioUrl || ann.metadata?.videoUrl) && (
+                                <div className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                  {ann.metadata?.imageUrl && (
+                                      <div className="rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-shadow cursor-zoom-in group relative">
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors z-10"></div>
+                                          <img src={convertDriveLink(ann.metadata.imageUrl, 800)} alt="Announcement" className="w-full h-auto object-contain max-h-[500px] bg-white" referrerPolicy="no-referrer" />
+                                      </div>
+                                  )}
+                                  {ann.metadata?.audioUrl && (
+                                      <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-3">
+                                          <span className="text-2xl">🔊</span>
+                                          <audio controls src={convertAudioDriveLink(ann.metadata.audioUrl)} className="w-full h-10 accent-indigo-600" />
+                                      </div>
+                                  )}
+                                  {ann.metadata?.videoUrl && (
+                                      <div>
+                                          <a 
+                                              href={ann.metadata.videoUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-indigo-50 text-indigo-600 font-black rounded-xl hover:bg-indigo-100 transition-all border-2 border-indigo-100 hover:border-indigo-200 hover:scale-[1.02] shadow-sm"
+                                          >
+                                              <span className="text-2xl">▶️</span> Watch Video
+                                          </a>
+                                      </div>
+                                  )}
+                                </div>
                               )}
                           </div>
                       ))}
                       {announcements.length === 0 && (
-                          <div className="text-center py-12 text-slate-400 font-bold">No announcements at this time.</div>
+                          <div className="text-center py-20 text-slate-400 flex flex-col items-center gap-4">
+                              <div className="text-8xl opacity-20 grayscale">📭</div>
+                              <p className="text-2xl font-bold">No announcements yet!</p>
+                              <p className="text-sm">Check back later for updates from your teacher.</p>
+                          </div>
                       )}
                   </div>
               </div>

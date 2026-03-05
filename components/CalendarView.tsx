@@ -67,8 +67,8 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
      switch(t) {
          case 'SCHOOL_DAY': return '🏫';
          case 'SPECIAL_EVENT': return '🎈';
-         case 'NO_SCHOOL': 
-         case 'HOLIDAY': return '🧸'; // Toy / Teddy Bear
+         case 'NO_SCHOOL': return '🧸';
+         case 'HOLIDAY': return '🎄';
          default: return '📅';
      }
   };
@@ -79,9 +79,10 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
          case 'SCHOOL_DAY': return 'bg-emerald-300 text-emerald-900 border-b-4 border-emerald-500 hover:bg-emerald-400';
          case 'SPECIAL_EVENT': return 'bg-amber-300 text-amber-900 border-b-4 border-amber-500 hover:bg-amber-400';
          case 'NO_SCHOOL': 
-         case 'HOLIDAY': 
             // Colorful gradient for No School
             return 'bg-gradient-to-r from-pink-300 via-purple-300 to-indigo-300 text-purple-900 border-b-4 border-purple-400 hover:brightness-110';
+         case 'HOLIDAY':
+            return 'bg-rose-400 text-white border-b-4 border-rose-600 hover:bg-rose-500 shadow-sm';
          default: return 'bg-slate-200 text-slate-700 border-b-4 border-slate-400';
      }
   };
@@ -192,6 +193,10 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                 <span className="text-xl">🧸</span>
                 <span className="text-xs font-black text-slate-500 uppercase">Play Time</span>
             </div>
+            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl shadow-[0_4px_0_#cbd5e1] border-2 border-slate-100 transform hover:-translate-y-1 transition-transform">
+                <span className="text-xl">🎄</span>
+                <span className="text-xs font-black text-slate-500 uppercase">Holiday</span>
+            </div>
         </div>
 
         {/* Upcoming List View */}
@@ -204,7 +209,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                         <div key={e.id} onClick={() => onEventClick?.(e)} className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50 hover:bg-indigo-50 transition-colors cursor-pointer border-2 border-transparent hover:border-indigo-100 group">
                              <div className={`
                                  flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-xs font-black leading-tight shadow-[0_4px_0_rgba(0,0,0,0.1)] border-b-4
-                                 ${normalizeType(e.type) === 'SCHOOL_DAY' ? 'bg-emerald-300 text-emerald-900 border-emerald-500' : normalizeType(e.type) === 'SPECIAL_EVENT' ? 'bg-amber-300 text-amber-900 border-amber-500' : 'bg-gradient-to-br from-pink-300 to-indigo-300 text-purple-900 border-purple-500'}
+                                 ${normalizeType(e.type) === 'SCHOOL_DAY' ? 'bg-emerald-300 text-emerald-900 border-emerald-500' : normalizeType(e.type) === 'SPECIAL_EVENT' ? 'bg-amber-300 text-amber-900 border-amber-500' : normalizeType(e.type) === 'HOLIDAY' ? 'bg-rose-400 text-white border-rose-600' : 'bg-gradient-to-br from-pink-300 to-indigo-300 text-purple-900 border-purple-500'}
                              `}>
                                  <span className="uppercase text-[10px]">{parseLocalDate(e.date).toLocaleString('default', { month: 'short' })}</span>
                                  <span className="text-xl">{parseLocalDate(e.date).getDate()}</span>
@@ -215,7 +220,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                     {e.title}
                                  </h4>
                                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                                     {normalizeType(e.type) === 'NO_SCHOOL' ? 'Play Time 🧸' : normalizeType(e.type) === 'SCHOOL_DAY' ? 'School Day 🏫' : 'Fun Event 🎈'}
+                                     {normalizeType(e.type) === 'NO_SCHOOL' ? 'Play Time 🧸' : normalizeType(e.type) === 'SCHOOL_DAY' ? 'School Day 🏫' : normalizeType(e.type) === 'HOLIDAY' ? 'Holiday 🎄' : 'Fun Event 🎈'}
                                  </p>
                              </div>
                         </div>

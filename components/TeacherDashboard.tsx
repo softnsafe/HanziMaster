@@ -1184,7 +1184,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       <div><InputLabel label="Event Title" /><input value={calTitle} onChange={e => setCalTitle(e.target.value)} placeholder="e.g., Pizza Party" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-400" required /></div>
                       <div><InputLabel label="Event Type" />
                           <select value={calType} onChange={e => setCalType(e.target.value as CalendarEventType)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-bold outline-none focus:border-indigo-400">
-                              <option value="SCHOOL_DAY">School Day 🏫</option><option value="SPECIAL_EVENT">Fun Event 🎈</option><option value="NO_SCHOOL">No School / Holiday 🧸</option>
+                              <option value="SCHOOL_DAY">School Day 🏫</option>
+                              <option value="SPECIAL_EVENT">Fun Event 🎈</option>
+                              <option value="NO_SCHOOL">No School 🧸</option>
+                              <option value="HOLIDAY">Holiday 🎄</option>
                           </select>
                       </div>
                       <div><InputLabel label="Description (Optional)" /><textarea value={calDesc} onChange={e => setCalDesc(e.target.value)} placeholder="Details..." className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium outline-none focus:border-indigo-400" rows={2} /></div>
