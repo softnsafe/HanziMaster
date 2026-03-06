@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
 import { Lesson } from '../types';
 import { HanziPlayer } from './HanziPlayer';
-import { generateStoryBuilderImage, getCharacterDetails, getSentenceMetadata, playPronunciation } from '../services/geminiService';
+import { getCharacterDetails, getSentenceMetadata, playPronunciation } from '../services/geminiService';
 import { pinyinify, comparePinyin } from '../utils/pinyinUtils';
 
 interface StoryBuilderGameProps {
@@ -26,9 +26,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   const [phrases, setPhrases] = useState('');
   const [sentenceChars, setSentenceChars] = useState<string[]>([]);
 
-  // Image state
-  const [storyImage, setStoryImage] = useState<string | null>(null);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  // Image state removed
   const [practiceCount, setPracticeCount] = useState(0);
   const [hanziKey, setHanziKey] = useState(0);
 
@@ -91,7 +89,6 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       setAudioSaved(false);
       setSelectedWords([]);
       setLegoFeedback('');
-      setStoryImage(null);
       setCharDetails(null);
       setSentencePinyin([]);
       
@@ -149,12 +146,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         });
       }
 
-      // Generate image in the background
-      setIsGeneratingImage(true);
-      generateStoryBuilderImage(sent).then(img => {
-          setStoryImage(img);
-          setIsGeneratingImage(false);
-      });
+      // Image generation removed for simplicity
     }
   }, [currentIndex, currentItem]);
 
@@ -430,22 +422,12 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         {step === 'BUILD_SENTENCE' && (
           <div className="flex flex-col items-center text-center animate-slide-up max-w-3xl w-full">
             
-            {/* Story Image Area */}
-            <div className="w-full max-w-xl aspect-video bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl border-4 border-white mb-6 md:mb-8 overflow-hidden relative flex items-center justify-center group">
-                {isGeneratingImage ? (
-                    <div className="flex flex-col items-center text-sky-400">
-                        <span className="text-4xl animate-spin mb-2">🪄</span>
-                        <span className="font-bold text-sm uppercase tracking-wider">Drawing your story...</span>
-                    </div>
-                ) : storyImage ? (
-                    <img src={storyImage} alt="Story illustration" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                ) : (
-                    <div className="text-slate-300 font-bold flex flex-col items-center">
-                        <span className="text-4xl mb-2">🖼️</span>
-                        <span>Picture unavailable</span>
-                    </div>
-                )}
-                <div className="absolute inset-0 shadow-inner pointer-events-none rounded-[1.5rem] md:rounded-[2rem]"></div>
+            {/* Story Image Area - Simplified */}
+            <div className="w-full max-w-xl bg-sky-50 rounded-[1.5rem] md:rounded-[2rem] border-4 border-sky-100 mb-6 md:mb-8 p-8 flex items-center justify-center shadow-inner">
+                <div className="text-center opacity-50">
+                    <span className="text-6xl block mb-2 grayscale">🧱</span>
+                    <span className="font-black text-sky-400 uppercase tracking-widest text-xl">Build The Sentence</span>
+                </div>
             </div>
 
             <h3 className="text-2xl md:text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>

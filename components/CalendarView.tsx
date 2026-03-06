@@ -166,6 +166,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                     >
                                         <span className="text-xs">{getEventIcon(e.type)}</span>
                                         <span className="truncate">{e.title}</span>
+                                        {isTeacher && e.privateNotes && <span className="text-[8px] ml-0.5">🔒</span>}
                                     </div>
                                 ))}
                                 {dateEvents.length > 2 && (
@@ -222,6 +223,11 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({ isTeacher
                                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
                                      {normalizeType(e.type) === 'NO_SCHOOL' ? 'Play Time 🧸' : normalizeType(e.type) === 'SCHOOL_DAY' ? 'School Day 🏫' : normalizeType(e.type) === 'HOLIDAY' ? 'Holiday 🎄' : 'Fun Event 🎈'}
                                  </p>
+                                 {isTeacher && e.privateNotes && (
+                                     <p className="text-xs text-amber-600 font-bold mt-1 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                                         <span>🔒</span> {e.privateNotes}
+                                     </p>
+                                 )}
                              </div>
                         </div>
                     ))}

@@ -1,11 +1,11 @@
 
 // -----------------------------------------------------
-// HANZI MASTER BACKEND SCRIPT (v3.28.0)
+// HANZI MASTER BACKEND SCRIPT (v3.29.0)
 // Copy ALL of this code into your Google Apps Script
 // -----------------------------------------------------
 
 // CONFIGURATION
-const VERSION = 'v3.28.0'; 
+const VERSION = 'v3.29.0'; 
 const SHEET_ID = ''; // Leave empty to use the bound sheet
 
 function getSpreadsheet() {
@@ -123,8 +123,16 @@ function setup() {
   let calSheet = ss.getSheetByName('Calendar');
   if (!calSheet) {
     calSheet = ss.insertSheet('Calendar');
-    calSheet.appendRow(['ID', 'Date', 'Title', 'Type', 'Description']);
+    calSheet.appendRow(['ID', 'Date', 'Title', 'Type', 'Description', 'PrivateNotes', 'ImageUrl']);
     calSheet.setFrozenRows(1);
+  } else {
+    var headers = calSheet.getRange(1, 1, 1, calSheet.getLastColumn()).getValues()[0];
+    if (findColumnIndex(headers, ['privatenotes', 'notes']) === -1) { 
+        calSheet.getRange(1, calSheet.getLastColumn() + 1).setValue('PrivateNotes'); 
+    }
+    if (findColumnIndex(headers, ['imageurl', 'image']) === -1) { 
+        calSheet.getRange(1, calSheet.getLastColumn() + 1).setValue('ImageUrl'); 
+    }
   }
 
   // 11. CLASS GOALS
@@ -247,6 +255,7 @@ function doGet(e) {
       else if (action === 'getRewardRules') return getRewardRules();
       else if (action === 'getDictionary') return getDictionary();
       else if (action === 'getAnnouncements') return getAnnouncements(params.studentId);
+      else if (action === 'getTeacherJournal') return getTeacherJournal();
       return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (err) { return response({status: 'error', message: err.toString()}); }
 }
@@ -292,10 +301,74 @@ function doPost(e) {
     else if (action === 'postAnnouncement') return postAnnouncement(data.payload);
     else if (action === 'editAnnouncement') return editAnnouncement(data.payload);
     else if (action === 'deleteAnnouncement') return deleteAnnouncement(data.payload);
+    else if (action === 'saveTeacherJournalEntry') return saveTeacherJournalEntry(data.payload);
+    else if (action === 'deleteTeacherJournalEntry') return deleteTeacherJournalEntry(data.payload);
     
     return response({status: 'error', message: 'Invalid action: ' + action});
   } catch (error) { return response({status: 'error', message: 'Server Error: ' + error.toString()}); } 
   finally { lock.releaseLock(); }
+}
+
+function getTeacherJournal() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('TeacherJournal');
+  if (!sheet) return response({ entries: [] });
+  const data = sheet.getDataRange().getValues();
+  const entries = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) {
+      let dateStr = data[i][1];
+      if (data[i][1] instanceof Date) { dateStr = data[i][1].toISOString().split('T')[0]; }
+      entries.push({
+        id: String(data[i][0]),
+        date: dateStr,
+        title: String(data[i][2]),
+        category: String(data[i][3]),
+        content: String(data[i][4]),
+        tags: data[i][5] ? String(data[i][5]).split(',') : []
+      });
+    }
+  }
+  return response({ entries: entries });
+}
+
+function saveTeacherJournalEntry(payload) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('TeacherJournal');
+  if (!sheet) {
+    sheet = ss.insertSheet('TeacherJournal');
+    sheet.appendRow(['ID', 'Date', 'Title', 'Category', 'Content', 'Tags']);
+    sheet.setFrozenRows(1);
+  }
+  const data = sheet.getDataRange().getValues();
+  let foundRow = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(payload.id)) { foundRow = i + 1; break; }
+  }
+  
+  const tags = Array.isArray(payload.tags) ? payload.tags.join(',') : '';
+  
+  if (foundRow > 0) {
+    sheet.getRange(foundRow, 2).setValue(payload.date);
+    sheet.getRange(foundRow, 3).setValue(payload.title);
+    sheet.getRange(foundRow, 4).setValue(payload.category);
+    sheet.getRange(foundRow, 5).setValue(payload.content);
+    sheet.getRange(foundRow, 6).setValue(tags);
+  } else {
+    sheet.appendRow([payload.id, payload.date, payload.title, payload.category, payload.content, tags]);
+  }
+  return response({ status: 'success' });
+}
+
+function deleteTeacherJournalEntry(payload) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('TeacherJournal');
+  if (!sheet) return response({ status: 'error' });
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(payload.id)) { sheet.deleteRow(i + 1); return response({ status: 'success' }); }
+  }
+  return response({ status: 'error' });
 }
 
 function response(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
@@ -426,7 +499,7 @@ function getCalendarEvents() {
     if (data[i][0]) {
       let dateStr = data[i][1];
       if (data[i][1] instanceof Date) { dateStr = data[i][1].toISOString().split('T')[0]; }
-      events.push({ id: String(data[i][0]), date: dateStr, title: String(data[i][2]), type: String(data[i][3]), description: String(data[i][4]) });
+      events.push({ id: String(data[i][0]), date: dateStr, title: String(data[i][2]), type: String(data[i][3]), description: String(data[i][4]), privateNotes: String(data[i][5] || ''), imageUrl: String(data[i][6] || '') });
     }
   }
   return response({ events: events });
@@ -446,8 +519,10 @@ function saveCalendarEvent(payload) {
     sheet.getRange(foundRow, 3).setValue(payload.title);
     sheet.getRange(foundRow, 4).setValue(payload.type);
     sheet.getRange(foundRow, 5).setValue(payload.description || '');
+    sheet.getRange(foundRow, 6).setValue(payload.privateNotes || '');
+    sheet.getRange(foundRow, 7).setValue(payload.imageUrl || '');
   } else {
-    sheet.appendRow([payload.id, payload.date, payload.title, payload.type, payload.description || '']);
+    sheet.appendRow([payload.id, payload.date, payload.title, payload.type, payload.description || '', payload.privateNotes || '', payload.imageUrl || '']);
   }
   return response({ status: 'success' });
 }

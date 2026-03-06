@@ -656,5 +656,33 @@ export const sheetService = {
           const data = await parseResponse(response);
           return data;
       } catch(e) { console.error(e); return { announcements: [] }; }
+  },
+
+  async getTeacherJournal(forceRefresh = false) {
+      if (this.isDemoMode()) return { entries: [] };
+      const cacheKey = 'teacher_journal';
+      if (!forceRefresh) { const cached = getFromCache<any[]>(cacheKey); if (cached) return { entries: cached }; }
+      const url = this.getUrl(); if (!url) return { entries: [] };
+      try {
+          const response = await fetchWithRetry(`${url}?action=getTeacherJournal&_t=${Date.now()}`, { credentials: 'omit', redirect: 'follow' });
+          const data = await parseResponse(response);
+          const entries = data.entries || [];
+          setCache(cacheKey, entries);
+          return { entries };
+      } catch(e) { console.error(e); return { entries: [] }; }
+  },
+
+  async saveTeacherJournalEntry(entry: any) {
+      if (this.isDemoMode()) return { success: true };
+      const res = await postData('saveTeacherJournalEntry', entry);
+      if(res.success) invalidateCache('teacher_journal');
+      return res;
+  },
+
+  async deleteTeacherJournalEntry(id: string) {
+      if (this.isDemoMode()) return { success: true };
+      const res = await postData('deleteTeacherJournalEntry', { id });
+      if(res.success) invalidateCache('teacher_journal');
+      return res;
   }
 };

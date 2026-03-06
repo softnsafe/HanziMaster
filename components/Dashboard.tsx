@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Lesson, Student, StudentAssignment, PracticeMode, PointLogEntry, ClassGoal, RewardRule, ScriptType, Announcement } from '../types';
+import { Lesson, Student, StudentAssignment, PracticeMode, PointLogEntry, ClassGoal, RewardRule, ScriptType, Announcement, CalendarEvent } from '../types';
 import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { CalendarView } from './CalendarView';
@@ -38,6 +38,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   
   // Sticker Store State
   const [showStore, setShowStore] = useState(false);
@@ -338,7 +339,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                  <Button variant="ghost" onClick={() => setShowCalendar(false)}>← Back to Homework</Button>
                  <h2 className="text-xl font-extrabold text-slate-800">School Schedule</h2>
              </div>
-             <CalendarView refreshTrigger={calendarRefreshTrigger} />
+             <CalendarView refreshTrigger={calendarRefreshTrigger} onEventClick={setSelectedEvent} />
           </div>
       ) : (
           <section>
@@ -507,6 +508,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                               ))}
                           </div>
                       )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Event Detail Modal */}
+      {selectedEvent && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => setSelectedEvent(null)}>
+              <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl animate-bounce-in relative overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => setSelectedEvent(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition-colors">✕</button>
+                  
+                  <div className="flex items-center gap-4 mb-6">
+                      <div className="text-4xl bg-slate-50 w-20 h-20 rounded-2xl flex items-center justify-center shadow-inner">
+                          {selectedEvent.type === 'SCHOOL_DAY' ? '🏫' : selectedEvent.type === 'SPECIAL_EVENT' ? '🎈' : selectedEvent.type === 'NO_SCHOOL' ? '🧸' : '🎄'}
+                      </div>
+                      <div>
+                          <h3 className="text-2xl font-extrabold text-slate-800 leading-tight">{selectedEvent.title}</h3>
+                          <p className="text-slate-500 font-bold uppercase tracking-wider text-sm mt-1">
+                              {parseLocalDate(selectedEvent.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                          </p>
+                      </div>
+                  </div>
+
+                  {selectedEvent.description && (
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mb-6">
+                          <p className="text-slate-600 font-medium leading-relaxed">{selectedEvent.description}</p>
+                      </div>
+                  )}
+
+                  {selectedEvent.imageUrl && (
+                      <div className="rounded-xl overflow-hidden shadow-md border border-slate-100 mb-6">
+                          <img src={selectedEvent.imageUrl} alt="Event" className="w-full h-auto object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                  )}
+
+                  <div className="flex justify-center">
+                      <Button onClick={() => setSelectedEvent(null)} className="w-full bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200">
+                          Close
+                      </Button>
                   </div>
               </div>
           </div>

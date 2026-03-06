@@ -9,6 +9,8 @@ import { PinyinGame } from './components/PinyinGame';
 import { FillInBlanksGame } from './components/FillInBlanksGame';
 import { StoryBuilderGame } from './components/StoryBuilderGame';
 import { WritingGame } from './components/WritingGame';
+import { CalendarManager } from './components/CalendarManager';
+import { TeacherJournal } from './components/TeacherJournal';
 import { SupportWidget } from './components/SupportWidget';
 import { LoginBackground } from './components/LoginBackground';
 import { sheetService } from './services/sheetService';
@@ -546,6 +548,24 @@ const App: React.FC = () => {
               onOpenSetup={() => setShowSetup(true)}
               onUpdateTheme={handleUpdateTheme}
               onResetTheme={handleResetTheme}
+              onOpenCalendarManager={() => setCurrentView(AppView.CALENDAR_MANAGER)}
+              onOpenTeacherJournal={() => setCurrentView(AppView.TEACHER_JOURNAL)}
+          />
+      );
+  }
+
+  if (currentView === AppView.CALENDAR_MANAGER) {
+      return (
+          <CalendarManager 
+              onExit={() => setCurrentView(AppView.TEACHER_DASHBOARD)}
+          />
+      );
+  }
+
+  if (currentView === AppView.TEACHER_JOURNAL) {
+      return (
+          <TeacherJournal 
+              onExit={() => setCurrentView(AppView.TEACHER_DASHBOARD)}
           />
       );
   }

@@ -7,13 +7,16 @@ import { CalendarView } from './CalendarView';
 import { generateDictionaryEntry } from '../services/geminiService';
 import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
 import { playAudioUrl } from '../services/geminiService';
-import { parseLocalDate } from '../utils/dateUtils';
+import { parseLocalDate, getLocalDateString } from '../utils/dateUtils';
+import { InputLabel } from './InputLabel';
 
 interface TeacherDashboardProps {
   onLogout: () => void;
   onOpenSetup: () => void;
   onUpdateTheme: (bg: string) => void;
   onResetTheme: () => void;
+  onOpenCalendarManager?: () => void;
+  onOpenTeacherJournal?: () => void;
 }
 
 type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary' | 'announcements';
@@ -90,7 +93,7 @@ const CollectionModal = ({ student, onClose }: { student: StudentSummary, onClos
   );
 };
 
-export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup }) => {
+export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, onOpenSetup, onOpenCalendarManager, onOpenTeacherJournal }) => {
   const [activeTab, setActiveTab] = useState<TabType>('create');
   const [isClassOpen, setIsClassOpen] = useState(true);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
@@ -111,7 +114,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [desc, setDesc] = useState('');
   const [chars, setChars] = useState('');
   const [type, setType] = useState<'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUILDER'>('WRITING');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(getLocalDateString());
   const [endDate, setEndDate] = useState(() => {
      const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split('T')[0];
   });
@@ -148,10 +151,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // Calendar State
   const [calEventId, setCalEventId] = useState<string | null>(null);
-  const [calDate, setCalDate] = useState(new Date().toISOString().split('T')[0]);
+  const [calDate, setCalDate] = useState(getLocalDateString());
   const [calTitle, setCalTitle] = useState('');
   const [calType, setCalType] = useState<CalendarEventType>('SCHOOL_DAY');
   const [calDesc, setCalDesc] = useState('');
+  const [calPrivateNotes, setCalPrivateNotes] = useState('');
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0);
 
   // Store Management State
@@ -257,7 +261,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setDesc('');
       setChars('');
       setType('WRITING');
-      setStartDate(new Date().toISOString().split('T')[0]);
+      setStartDate(getLocalDateString());
       const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
       setEndDate(nextWeek.toISOString().split('T')[0]);
       setAssignmentPoints(30); // Reset points
@@ -593,15 +597,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
   // --- Calendar Handlers ---
   const handleDateSelect = (date: Date) => {
-      // Adjust for timezone offset to prevent date shifting
-      const offset = date.getTimezoneOffset();
-      const localDate = new Date(date.getTime() - (offset*60*1000));
-      setCalDate(localDate.toISOString().split('T')[0]);
+      // Use local date components to avoid timezone shifts
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      
+      setCalDate(dateStr);
       
       setCalEventId(null);
       setCalTitle('');
       setCalType('SCHOOL_DAY');
       setCalDesc('');
+      setCalPrivateNotes('');
   };
 
   const handleEventClick = (event: CalendarEvent) => {
@@ -610,6 +618,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       setCalTitle(event.title);
       setCalType(event.type);
       setCalDesc(event.description || '');
+      setCalPrivateNotes(event.privateNotes || '');
   };
 
   const handleSaveEvent = async (e: React.FormEvent) => {
@@ -622,7 +631,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           date: calDate,
           title: calTitle,
           type: calType,
-          description: calDesc
+          description: calDesc,
+          privateNotes: calPrivateNotes
       };
       await sheetService.saveCalendarEvent(payload);
       setLastSuccess(calEventId ? "Event Updated" : "Event Created");
@@ -655,10 +665,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           </div>
           {rightElement}
       </div>
-  );
-
-  const InputLabel = ({ label }: { label: string }) => (
-      <label className="block text-sm font-bold text-slate-500 uppercase tracking-wide mb-2 ml-1">{label}</label>
   );
 
   // Derived categories for the datalist (always dynamically updated)
@@ -875,6 +881,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                     </>
                 )}
             </div>
+            {onOpenTeacherJournal && (
+                <Button variant="secondary" onClick={onOpenTeacherJournal} className="bg-amber-50 text-amber-600 hover:bg-amber-100 border-amber-200">
+                    📒 Journal
+                </Button>
+            )}
             <Button variant="ghost" onClick={onOpenSetup} className="text-slate-500 hover:bg-slate-50 hover:text-slate-700">⚙️ Settings</Button>
             <Button variant="outline" onClick={onLogout} className="border-slate-300 text-slate-600 hover:bg-slate-50">Log Out</Button>
         </div>
@@ -1176,7 +1187,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
 
       {/* CALENDAR TAB */}
       {activeTab === 'calendar' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="animate-fade-in">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-black text-slate-800">School Calendar</h2>
+                {onOpenCalendarManager && (
+                    <Button onClick={onOpenCalendarManager} variant="secondary" className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-indigo-200">
+                        Open Full Calendar ↗
+                    </Button>
+                )}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2"><CalendarView isTeacher onDateSelect={handleDateSelect} onEventClick={handleEventClick} refreshTrigger={calendarRefreshTrigger} /></div>
               <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 h-fit">
                   <SectionHeader title={calEventId ? "Edit Event" : "Add Event"} subtitle={new Date(calDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric'})} />
@@ -1191,11 +1211,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                           </select>
                       </div>
                       <div><InputLabel label="Description (Optional)" /><textarea value={calDesc} onChange={e => setCalDesc(e.target.value)} placeholder="Details..." className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium outline-none focus:border-indigo-400" rows={2} /></div>
+                      <div><InputLabel label="Private Notes (Teacher Only) 🔒" /><textarea value={calPrivateNotes} onChange={e => setCalPrivateNotes(e.target.value)} placeholder="Lesson plans, observations, reminders..." className="w-full px-4 py-3 bg-yellow-50 border-2 border-yellow-200 rounded-xl font-medium outline-none focus:border-yellow-400 text-yellow-900 placeholder-yellow-700/50" rows={3} /></div>
                       <div className="flex gap-2 pt-2"><Button type="submit" isLoading={isSubmitting} className="flex-1">{calEventId ? "Update" : "Save Event"}</Button>{calEventId && (<Button type="button" variant="danger" onClick={handleDeleteEvent}>Delete</Button>)}</div>
-                      {calEventId && <Button type="button" variant="ghost" onClick={() => { setCalEventId(null); setCalTitle(''); setCalDesc(''); }} className="w-full">Cancel</Button>}
+                      {calEventId && <Button type="button" variant="ghost" onClick={() => { setCalEventId(null); setCalTitle(''); setCalDesc(''); setCalPrivateNotes(''); }} className="w-full">Cancel</Button>}
                   </form>
               </div>
           </div>
+        </div>
       )}
 
       {/* PROGRESS TAB */}

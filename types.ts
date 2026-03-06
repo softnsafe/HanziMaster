@@ -7,12 +7,23 @@ export type PracticeMode = 'WRITING' | 'PINYIN' | 'FILL_IN_BLANKS' | 'STORY_BUIL
 
 export type CalendarEventType = 'SCHOOL_DAY' | 'SPECIAL_EVENT' | 'NO_SCHOOL' | 'HOLIDAY';
 
+export interface TeacherJournalEntry {
+  id: string;
+  date: string;
+  title: string;
+  category: 'LESSON_PLAN' | 'CLASS_LOG' | 'STUDENT_INFO' | 'OTHER';
+  content: string;
+  tags?: string[];
+}
+
 export interface CalendarEvent {
   id: string;
   date: string; // YYYY-MM-DD
   title: string;
   type: CalendarEventType;
   description?: string;
+  privateNotes?: string;
+  imageUrl?: string;
 }
 
 export interface StudentAssignment {
@@ -154,7 +165,9 @@ export enum AppView {
   PRACTICE_FILL_IN_BLANKS = 'PRACTICE_FILL_IN_BLANKS',
   PRACTICE_STORY_BUILDER = 'PRACTICE_STORY_BUILDER',
   REPORT = 'REPORT',
-  STICKER_STORE = 'STICKER_STORE'
+  STICKER_STORE = 'STICKER_STORE',
+  CALENDAR_MANAGER = 'CALENDAR_MANAGER',
+  TEACHER_JOURNAL = 'TEACHER_JOURNAL'
 }
 
 export interface GradingResult {
