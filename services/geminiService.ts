@@ -127,9 +127,17 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       if (success) return;
   }
 
-  // 2. Direct Google Translate TTS (Client-Side)
-  // User suggested: client=tw-ob allows direct access without API key
-  // We try this FIRST because it's the most direct source of high-quality audio.
+  // 2. Youdao TTS (Free Public Endpoint)
+  // This is the easiest way to use Youdao's high-quality Chinese voice without needing API keys.
+  try {
+      const youdaoUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&le=zh`;
+      const success = await playAudioUrl(youdaoUrl);
+      if (success) return;
+  } catch (e) {
+      console.warn("Youdao TTS failed", e);
+  }
+
+  // 3. Direct Google Translate TTS (Client-Side Backup)
   try {
       const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
       const success = await playAudioUrl(directUrl);
@@ -138,8 +146,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       console.warn("Direct Google TTS failed", e);
   }
 
-  // 3. Google Translate TTS via Backend Proxy (Backup)
-  // This bypasses CORS if the client-side direct fetch is blocked by strict browser policies.
+  // 4. Google Translate TTS via Backend Proxy (Secondary Backup)
   try {
       // Use our new backend proxy endpoint
       const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
@@ -149,7 +156,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       console.warn("Google Translate Proxy failed", e);
   }
 
-  // 4. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
+  // 5. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
   // Kept as backup because it has high-quality human recordings for single chars
   if (pinyin) {
       // Convert tone marks to numbered pinyin (e.g. "nǐ hǎo" -> "ni3 hao3")
@@ -182,7 +189,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       if (allSuccess && syllables.length > 0) return;
   }
 
-  // 5. Fallback to Browser's built-in Speech Synthesis (Robotic)
+  // 6. Fallback to Browser's built-in Speech Synthesis (Robotic)
   if (pinyin) {
       // Clean pinyin (remove spaces, lowercase)
       const cleanPinyin = pinyin.toLowerCase().replace(/\s+/g, '');
@@ -199,7 +206,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       showToast(`Audio file missing for "${cleanPinyin}". Using generated voice.`);
   }
 
-  // 4. Fallback to Browser's built-in Speech Synthesis
+  // 7. Fallback to Browser's built-in Speech Synthesis
   try {
       // Cancel any ongoing speech
       window.speechSynthesis.cancel();
