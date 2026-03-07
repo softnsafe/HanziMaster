@@ -127,26 +127,29 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       if (success) return;
   }
 
-  // 2. Google Translate TTS via Backend Proxy (Primary Source for ALL text)
-  // This bypasses CORS by fetching audio on the server side.
-  // No quota usage, high quality.
+  // 2. Direct Google Translate TTS (Client-Side)
+  // User suggested: client=tw-ob allows direct access without API key
+  // We try this FIRST because it's the most direct source of high-quality audio.
+  try {
+      const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
+      const success = await playAudioUrl(directUrl);
+      if (success) return;
+  } catch (e) {
+      console.warn("Direct Google TTS failed", e);
+  }
+
+  // 3. Google Translate TTS via Backend Proxy (Backup)
+  // This bypasses CORS if the client-side direct fetch is blocked by strict browser policies.
   try {
       // Use our new backend proxy endpoint
       const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
-      // showToast(`Trying Google TTS Proxy...`); // Debug
       const success = await playAudioUrl(proxyUrl);
-      if (success) {
-          // showToast(`Google TTS Success!`); // Debug
-          return;
-      } else {
-          showToast(`Google TTS Failed. Trying fallback...`);
-      }
+      if (success) return;
   } catch (e) {
       console.warn("Google Translate Proxy failed", e);
-      showToast(`Proxy Error: ${e}`);
   }
 
-  // 3. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
+  // 4. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
   // Kept as backup because it has high-quality human recordings for single chars
   if (pinyin) {
       // Convert tone marks to numbered pinyin (e.g. "nǐ hǎo" -> "ni3 hao3")
