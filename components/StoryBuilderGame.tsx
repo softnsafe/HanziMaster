@@ -25,6 +25,10 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   const [targetWord, setTargetWord] = useState('');
   const [phrases, setPhrases] = useState('');
   const [sentenceChars, setSentenceChars] = useState<string[]>([]);
+  
+  // New state for practicing all characters
+  const [practiceChars, setPracticeChars] = useState<string[]>([]);
+  const [practiceCharIndex, setPracticeCharIndex] = useState(0);
 
   // Image state removed
   const [practiceCount, setPracticeCount] = useState(0);
@@ -72,7 +76,21 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         phrs = currentItem;
       }
 
-      setTargetWord(word);
+      // Determine what to practice (Word if explicit, otherwise Sentence)
+      let practiceSource = word;
+      if (parts.length < 3) {
+          // If fallback, practice the whole sentence characters
+          practiceSource = sent;
+      }
+      
+      // Clean and get unique characters for practice
+      const cleanPractice = practiceSource.replace(/[^\p{L}\p{N}]/gu, '');
+      const uniqueChars = Array.from(new Set([...cleanPractice]));
+      
+      setPracticeChars(uniqueChars);
+      setPracticeCharIndex(0);
+      setTargetWord(uniqueChars[0] || '');
+      
       setPhrases(phrs);
 
       // Strip ALL punctuation, symbols, and spaces. Only keep letters (including Chinese) and numbers.
@@ -100,40 +118,18 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       const shuffled = [...wordObjects].sort(() => Math.random() - 0.5);
       setShuffledWords(shuffled);
 
-      // Fetch character details
-      if (word) {
-        getCharacterDetails(word).then(details => {
-          if (details) {
-            setCharDetails({ 
-                radical: details.radical, 
-                strokeCount: details.strokeCount, 
-                pinyin: details.pinyin,
-                definition: details.definition
-            });
-            // Fallback phrase pinyin if phrase is just the word
-            if (phrs === word && details.pinyin) {
-                setPhrasePinyin(details.pinyin);
-            }
-          }
-        });
-      }
-
-      // Fetch phrase pinyin if different from word
-      if (phrs && phrs !== word) {
-          // Check dictionary first
+      // Fetch phrase pinyin
+      if (phrs) {
           if (dictionary[phrs]) {
               setPhrasePinyin(dictionary[phrs].pinyin);
           } else {
-              // Use API
+              // Use API for both phrase and word cases if not in dictionary
               getSentenceMetadata(phrs).then(meta => {
                   if (meta && meta.pinyin) {
-                      // meta.pinyin is string[]
                       setPhrasePinyin(meta.pinyin.join(' '));
                   }
               });
           }
-      } else if (phrs === word && dictionary[phrs]) {
-          setPhrasePinyin(dictionary[phrs].pinyin);
       }
 
       // Fetch sentence metadata
@@ -149,6 +145,22 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       // Image generation removed for simplicity
     }
   }, [currentIndex, currentItem]);
+
+  // Fetch character details when targetWord changes
+  useEffect(() => {
+    if (targetWord) {
+      getCharacterDetails(targetWord).then(details => {
+        if (details) {
+          setCharDetails({ 
+              radical: details.radical, 
+              strokeCount: details.strokeCount, 
+              pinyin: details.pinyin,
+              definition: details.definition
+          });
+        }
+      });
+    }
+  }, [targetWord]);
 
   if (!currentItem) return null;
 
@@ -176,9 +188,20 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
       setPracticeCount(prev => prev + 1);
       setHanziKey(prev => prev + 1);
     } else {
-      setTimeout(() => {
-        handleNextStep();
-      }, 500);
+      // Finished 3 times for current char
+      if (practiceCharIndex < practiceChars.length - 1) {
+         // Move to next char
+         const nextIndex = practiceCharIndex + 1;
+         setPracticeCharIndex(nextIndex);
+         setTargetWord(practiceChars[nextIndex]);
+         setPracticeCount(0);
+         setHanziKey(prev => prev + 1);
+      } else {
+         // All chars done
+         setTimeout(() => {
+           handleNextStep();
+         }, 500);
+      }
     }
   };
 

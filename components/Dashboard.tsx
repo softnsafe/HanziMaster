@@ -5,6 +5,7 @@ import { Button } from './Button';
 import { sheetService } from '../services/sheetService';
 import { CalendarView } from './CalendarView';
 import { StickerStore } from './StickerStore';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { parseLocalDate } from '../utils/dateUtils';
 import { convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
 
@@ -43,6 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
   // Sticker Store State
   const [showStore, setShowStore] = useState(false);
   const [storeTab, setStoreTab] = useState<'CATALOG' | 'AI_LAB' | 'COLLECTION'>('CATALOG');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // Point History State
   const [showPointHistory, setShowPointHistory] = useState(false);
@@ -254,6 +256,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
                     setShowCalendar(!showCalendar);
                 }}>
                     {showCalendar ? '📖 Homework' : '📅 School Calendar'}
+                </Button>
+                <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={() => setShowPasswordModal(true)}>
+                    🔑 Password
                 </Button>
                 <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={onLogout}>
                     Logout
@@ -562,6 +567,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ student, onStartPractice, 
             onClose={() => setShowStore(false)} 
             initialTab={storeTab}
           />
+      )}
+
+      {showPasswordModal && (
+        <ChangePasswordModal 
+          studentId={localStudent.id} 
+          onClose={() => setShowPasswordModal(false)} 
+        />
       )}
 
       {/* Announcements Modal */}

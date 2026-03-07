@@ -423,6 +423,11 @@ export const sheetService = {
 
   // --- POST METHODS ---
 
+  async changePassword(studentId: string, oldPass: string, newPass: string) {
+      if (this.isDemoMode()) return { success: true };
+      return postData('changePassword', { studentId, oldPass, newPass });
+  },
+
   async addStudent(name: string, password?: string) {
       if (this.isDemoMode()) return { success: true };
       const res = await postData('addStudent', { name, password });
