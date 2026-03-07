@@ -133,10 +133,17 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   try {
       // Use our new backend proxy endpoint
       const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+      // showToast(`Trying Google TTS Proxy...`); // Debug
       const success = await playAudioUrl(proxyUrl);
-      if (success) return;
+      if (success) {
+          // showToast(`Google TTS Success!`); // Debug
+          return;
+      } else {
+          showToast(`Google TTS Failed. Trying fallback...`);
+      }
   } catch (e) {
       console.warn("Google Translate Proxy failed", e);
+      showToast(`Proxy Error: ${e}`);
   }
 
   // 3. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
