@@ -398,7 +398,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 type="text" 
                 value={pinyinInput}
                 onChange={(e) => setPinyinInput(e.target.value)}
-                placeholder="e.g. shui guo"
+                placeholder="e.g. shui3 guo3"
                 className="w-full px-4 md:px-6 py-3 md:py-4 text-xl md:text-2xl font-bold text-center bg-white border-4 border-amber-200 rounded-2xl focus:border-amber-400 outline-none mb-4 shadow-inner text-slate-700"
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && handleCheckPinyin()}

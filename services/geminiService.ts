@@ -79,15 +79,34 @@ export const playAudioUrl = async (url: string): Promise<boolean> => {
 
     return new Promise((resolve) => {
         const audio = new Audio(url);
-        audio.onended = () => resolve(true);
+        
+        let timeoutId: any;
+        
+        const cleanup = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+
+        audio.onended = () => {
+            cleanup();
+            resolve(true);
+        };
+        
         audio.onerror = (e) => {
             console.warn("Audio playback failed:", url, e);
+            cleanup();
             resolve(false);
         };
-        // Timeout if it hangs (Increased to 5s for slower TTS)
-        setTimeout(() => resolve(false), 5000);
+        
+        // Timeout if it hangs or takes too long (Increased to 15s for sentences)
+        timeoutId = setTimeout(() => {
+            console.warn("Audio playback timed out:", url);
+            audio.pause();
+            resolve(false);
+        }, 15000);
+        
         audio.play().catch((e) => {
             console.warn("Audio play() rejected:", url, e);
+            cleanup();
             resolve(false);
         });
     });
@@ -135,7 +154,9 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   // 2. Youdao TTS (Free Public Endpoint)
   // This is the easiest way to use Youdao's high-quality Chinese voice without needing API keys.
   try {
-      const youdaoUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&le=zh`;
+      // Remove spaces and punctuation for TTS APIs to prevent errors
+      const ttsText = cleanText.replace(/[^\p{L}\p{N}]/gu, '');
+      const youdaoUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(ttsText)}&le=zh`;
       const success = await playAudioUrl(youdaoUrl);
       if (success) {
           showToast("Audio: Youdao TTS");
@@ -147,7 +168,8 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
 
   // 3. Direct Google Translate TTS (Client-Side Backup)
   try {
-      const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
+      const ttsText = cleanText.replace(/[^\p{L}\p{N}]/gu, '');
+      const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(ttsText)}&tl=zh-CN&client=tw-ob`;
       const success = await playAudioUrl(directUrl);
       if (success) {
           showToast("Audio: Google TTS (Direct)");
@@ -160,7 +182,8 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   // 4. Google Translate TTS via Backend Proxy (Secondary Backup)
   try {
       // Use our new backend proxy endpoint
-      const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+      const ttsText = cleanText.replace(/[^\p{L}\p{N}]/gu, '');
+      const proxyUrl = `/api/tts?text=${encodeURIComponent(ttsText)}`;
       const success = await playAudioUrl(proxyUrl);
       if (success) {
           showToast("Audio: Google TTS (Proxy)");
