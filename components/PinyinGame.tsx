@@ -281,8 +281,8 @@ export const PinyinGame: React.FC<PinyinGameProps> = ({ lesson, initialCharacter
                             <p className="text-[10px] text-amber-500 font-bold text-center mt-2">AI Unavailable. Guess blindly or skip.</p>
                         )}
                         <p className="text-sm text-slate-500 font-bold text-center mt-3">
-                            Enter pinyin + number<br />
-                            (for example: 我 -&gt; wǒ = wo3)
+                            Type the pinyin!<br />
+                            (e.g. shui guo should be shui3 guo3)
                         </p>
                     </form>
                 )}

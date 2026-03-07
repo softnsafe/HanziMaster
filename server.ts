@@ -8,11 +8,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize Gemini AI
-  // Try both variable names to be safe
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-  const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-
   // Middleware to parse JSON bodies
   app.use(express.json());
 
@@ -47,9 +42,13 @@ async function startServer() {
   // API Route: Character Details
   app.get("/api/character-details", async (req, res) => {
     const character = req.query.character as string;
-    if (!character || !ai) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    
+    if (!character || !apiKey) {
       return res.status(400).json({ error: "Missing character or AI not configured" });
     }
+
+    const ai = new GoogleGenAI({ apiKey });
 
     try {
       const response = await ai.models.generateContent({

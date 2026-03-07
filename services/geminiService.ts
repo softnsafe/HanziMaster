@@ -94,7 +94,9 @@ export const playAudioUrl = async (url: string): Promise<boolean> => {
 };
 
 const showToast = (msg: string) => {
-    if (document.getElementById('audio-toast')) return; // Prevent duplicate
+    const existing = document.getElementById('audio-toast');
+    if (existing) existing.remove(); // Remove existing to show new one immediately
+
     const toast = document.createElement('div');
     toast.id = 'audio-toast';
     toast.innerText = msg;
@@ -124,7 +126,10 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   if (overrideUrl) {
       const url = convertAudioDriveLink(overrideUrl);
       const success = await playAudioUrl(url);
-      if (success) return;
+      if (success) {
+          showToast("Audio: Custom URL");
+          return;
+      }
   }
 
   // 2. Youdao TTS (Free Public Endpoint)
@@ -132,7 +137,10 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   try {
       const youdaoUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&le=zh`;
       const success = await playAudioUrl(youdaoUrl);
-      if (success) return;
+      if (success) {
+          showToast("Audio: Youdao TTS");
+          return;
+      }
   } catch (e) {
       console.warn("Youdao TTS failed", e);
   }
@@ -141,7 +149,10 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
   try {
       const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
       const success = await playAudioUrl(directUrl);
-      if (success) return;
+      if (success) {
+          showToast("Audio: Google TTS (Direct)");
+          return;
+      }
   } catch (e) {
       console.warn("Direct Google TTS failed", e);
   }
@@ -151,7 +162,10 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       // Use our new backend proxy endpoint
       const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
       const success = await playAudioUrl(proxyUrl);
-      if (success) return;
+      if (success) {
+          showToast("Audio: Google TTS (Proxy)");
+          return;
+      }
   } catch (e) {
       console.warn("Google Translate Proxy failed", e);
   }
@@ -186,7 +200,10 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
           }
       }
       
-      if (allSuccess && syllables.length > 0) return;
+      if (allSuccess && syllables.length > 0) {
+          showToast("Audio: CDN Recording");
+          return;
+      }
   }
 
   // 6. Fallback to Browser's built-in Speech Synthesis (Robotic)
@@ -196,14 +213,19 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       
       // Try MP3 first
       const mp3Url = `/audio/${cleanPinyin}.mp3`;
-      if (await playAudioUrl(mp3Url)) return;
+      if (await playAudioUrl(mp3Url)) {
+          showToast("Audio: Local MP3");
+          return;
+      }
 
       // Try M4A second (Fallback for mp4 audio containers)
       const m4aUrl = `/audio/${cleanPinyin}.m4a`;
-      if (await playAudioUrl(m4aUrl)) return;
+      if (await playAudioUrl(m4aUrl)) {
+          showToast("Audio: Local M4A");
+          return;
+      }
 
       console.warn(`Local audio ${cleanPinyin} not found, using TTS.`);
-      showToast(`Audio file missing for "${cleanPinyin}". Using generated voice.`);
   }
 
   // 7. Fallback to Browser's built-in Speech Synthesis
@@ -241,6 +263,7 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       }
 
       window.speechSynthesis.speak(utterance);
+      showToast("Audio: Browser TTS (Robotic)");
   } catch (error) {
       console.error("Browser TTS failed:", error);
   }
