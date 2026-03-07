@@ -3,7 +3,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { GradingResult, Flashcard } from '../types';
 import { sheetService } from './sheetService';
 import { convertAudioDriveLink } from '../utils/stickerData';
-import { convertCharacter } from '../utils/characterConverter';
 import { toneToNumber } from '../utils/pinyinUtils';
 
 // Lazy initialization of AI instance
@@ -112,6 +111,12 @@ const showToast = (msg: string) => {
     }, 2500);
 };
 
+// Helper to generate speech using Gemini TTS (Deprecated in favor of Proxy)
+export const generateSpeech = async (): Promise<string | null> => {
+    // This is now a fallback or unused
+    return null;
+};
+
 export const playPronunciation = async (text: string, overrideUrl?: string, pinyin?: string) => {
   const cleanText = text.trim();
 
@@ -122,45 +127,19 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       if (success) return;
   }
 
-  // 2. Google Translate TTS (Primary Source for ALL text)
-  // This is now the #1 priority as requested.
-  // It handles single chars, words, and sentences naturally.
+  // 2. Google Translate TTS via Backend Proxy (Primary Source for ALL text)
+  // This bypasses CORS by fetching audio on the server side.
+  // No quota usage, high quality.
   try {
-      const gTranslateUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
-      // We use a direct fetch check inside playAudioUrl, but for Google Translate specifically,
-      // sometimes it needs to be set directly on an Audio element to bypass strict CORS checks on fetch.
-      // However, playAudioUrl handles this by creating an Audio object.
-      const success = await playAudioUrl(gTranslateUrl);
+      // Use our new backend proxy endpoint
+      const proxyUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+      const success = await playAudioUrl(proxyUrl);
       if (success) return;
   } catch (e) {
-      console.warn("Google Translate TTS failed", e);
+      console.warn("Google Translate Proxy failed", e);
   }
 
-  // 3. Try Global Dictionary from Sheet (Secondary Source)
-  try {
-      const dict = await sheetService.getDictionary();
-      let dictUrl = dict[cleanText];
-      
-      // Fallback Strategy: Check both Simplified and Traditional variants
-      if (!dictUrl) {
-          const simpText = convertCharacter(cleanText, 'Simplified');
-          if (dict[simpText]) dictUrl = dict[simpText];
-          else {
-              const tradText = convertCharacter(cleanText, 'Traditional');
-              if (dict[tradText]) dictUrl = dict[tradText];
-          }
-      }
-      
-      if (dictUrl) {
-          const url = convertAudioDriveLink(dictUrl);
-          const success = await playAudioUrl(url);
-          if (success) return;
-      }
-  } catch (e) {
-      console.warn("Dictionary lookup failed", e);
-  }
-
-  // 4. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
+  // 3. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
   // Kept as backup because it has high-quality human recordings for single chars
   if (pinyin) {
       // Convert tone marks to numbered pinyin (e.g. "nǐ hǎo" -> "ni3 hao3")
