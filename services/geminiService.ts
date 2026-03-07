@@ -501,6 +501,17 @@ export const getCharacterDetails = async (character: string): Promise<{
     radical: string;
     strokeCount: number;
 } | null> => {
+  // 1. Try Server Proxy (Primary for Production Reliability)
+  try {
+      const res = await fetch(`/api/character-details?character=${encodeURIComponent(character)}`);
+      if (res.ok) {
+          return await res.json();
+      }
+  } catch (e) {
+      console.warn("Server proxy for character details failed, trying client-side fallback...", e);
+  }
+
+  // 2. Fallback: Client-side AI (For Dev/Local or if Proxy fails)
   try {
     const ai = getAI();
     const response = await callWithRetry(() => ai.models.generateContent({
@@ -540,7 +551,7 @@ export const getCharacterDetails = async (character: string): Promise<{
   } catch (error) {
     console.error("Error generating character details:", error);
     
-    // Fallback: Try Dictionary for Pinyin
+    // 3. Final Fallback: Dictionary (Offline/Cache)
     try {
         const dict = await sheetService.getDictionary();
         const pinyin = dict[character];
