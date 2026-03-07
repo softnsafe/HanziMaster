@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Student, PracticeRecord, AppView, Lesson, PracticeMode, RewardRule } from './types';
 import { Dashboard } from './components/Dashboard';
 import { ProgressReport } from './components/ProgressReport';
@@ -354,13 +354,19 @@ const App: React.FC = () => {
       });
   };
 
+  const isCompletingRef = useRef(false);
+
   const handleGameComplete = async () => {
+      if (isCompletingRef.current) return;
+      isCompletingRef.current = true;
+      
       // Called by Pinyin/FillBlank games when finished
       if (currentLesson && student) {
           track(student, 'COMPLETE_PRACTICE', `Completed ${currentLesson.title}`, { lessonId: currentLesson.id });
           await completeAssignment(currentLesson.id);
       }
       setCurrentView(AppView.DASHBOARD);
+      isCompletingRef.current = false;
   };
 
   // --- Views ---
