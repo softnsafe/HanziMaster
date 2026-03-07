@@ -81,14 +81,14 @@ export const playAudioUrl = async (url: string): Promise<boolean> => {
     return new Promise((resolve) => {
         const audio = new Audio(url);
         audio.onended = () => resolve(true);
-        audio.onerror = () => {
-            // Not logging error here as 404 is expected fallback behavior
+        audio.onerror = (e) => {
+            console.warn("Audio playback failed:", url, e);
             resolve(false);
         };
-        // Timeout if it hangs
-        setTimeout(() => resolve(false), 3000);
-        audio.play().catch(() => {
-            // Usually 404 or Not Supported error results in promise rejection or immediate error
+        // Timeout if it hangs (Increased to 5s for slower TTS)
+        setTimeout(() => resolve(false), 5000);
+        audio.play().catch((e) => {
+            console.warn("Audio play() rejected:", url, e);
             resolve(false);
         });
     });
@@ -122,7 +122,21 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       if (success) return;
   }
 
-  // 2. Try Global Dictionary from Sheet
+  // 2. Google Translate TTS (Primary Source for ALL text)
+  // This is now the #1 priority as requested.
+  // It handles single chars, words, and sentences naturally.
+  try {
+      const gTranslateUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=zh-CN&client=tw-ob`;
+      // We use a direct fetch check inside playAudioUrl, but for Google Translate specifically,
+      // sometimes it needs to be set directly on an Audio element to bypass strict CORS checks on fetch.
+      // However, playAudioUrl handles this by creating an Audio object.
+      const success = await playAudioUrl(gTranslateUrl);
+      if (success) return;
+  } catch (e) {
+      console.warn("Google Translate TTS failed", e);
+  }
+
+  // 3. Try Global Dictionary from Sheet (Secondary Source)
   try {
       const dict = await sheetService.getDictionary();
       let dictUrl = dict[cleanText];
@@ -146,7 +160,8 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       console.warn("Dictionary lookup failed", e);
   }
 
-  // 3. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound)
+  // 4. Try CDN Fallback (New: davinfifield/mp3-chinese-pinyin-sound) - Tertiary Source
+  // Kept as backup because it has high-quality human recordings for single chars
   if (pinyin) {
       // Convert tone marks to numbered pinyin (e.g. "nǐ hǎo" -> "ni3 hao3")
       const numberedPinyin = toneToNumber(pinyin);
@@ -157,23 +172,28 @@ export const playPronunciation = async (text: string, overrideUrl?: string, piny
       // Play sequentially
       for (const syllable of syllables) {
           // Clean syllable (remove punctuation, keep alphanumeric)
-          const cleanSyllable = syllable.replace(/[^a-z0-9ü]/g, '');
+          let cleanSyllable = syllable.replace(/[^a-z0-9ü]/g, '');
+          
+          // Handle neutral tone
+          if (!/[1-4]/.test(cleanSyllable)) {
+             if (/^[a-z]+$/.test(cleanSyllable)) {
+                 cleanSyllable += '5';
+             }
+          }
+
           if (!cleanSyllable) continue;
           
           const cdnUrl = `https://cdn.jsdelivr.net/gh/davinfifield/mp3-chinese-pinyin-sound/mp3/${cleanSyllable}.mp3`;
           const success = await playAudioUrl(cdnUrl);
           if (!success) {
               allSuccess = false;
-              // If one fails, maybe we should stop? Or continue?
-              // If it's a sentence, missing one word is bad.
-              // But let's try to play what we can.
           }
       }
       
       if (allSuccess && syllables.length > 0) return;
   }
 
-  // 4. Try Local File Fallback (Legacy)
+  // 5. Fallback to Browser's built-in Speech Synthesis (Robotic)
   if (pinyin) {
       // Clean pinyin (remove spaces, lowercase)
       const cleanPinyin = pinyin.toLowerCase().replace(/\s+/g, '');
