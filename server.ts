@@ -94,8 +94,9 @@ async function startServer() {
     }
 
     // 2. Fallback to Gemini
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
     if (!apiKey) {
+      console.error("API Key missing. Make sure GEMINI_API_KEY or API_KEY is set.");
       return res.status(400).json({ error: "AI not configured" });
     }
 
@@ -147,6 +148,7 @@ async function startServer() {
     const query = req.query.query as string;
     if (!query) return res.status(400).json({ error: "Missing query" });
 
+    // Try Tatoeba first
     try {
       const url = `https://tatoeba.org/en/api_v0/search?from=cmn&to=eng&query=${encodeURIComponent(query)}`;
       const response = await fetch(url);
@@ -154,19 +156,65 @@ async function startServer() {
         const data = await response.json();
         const results = data.results || [];
         // Take only the first sentence as requested
-        const sentences = results.slice(0, 1).map((r: any) => {
-          const chinese = r.text;
-          const english = r.translations?.[0]?.[0]?.text || '';
-          // Generate pinyin using pinyin-pro
-          const pinyinText = pinyin(chinese, { toneType: 'num' });
-          return { chinese, pinyin: pinyinText, english };
-        });
-        res.json({ sentences });
-      } else {
-        res.status(500).json({ error: "Failed to fetch from Tatoeba" });
+        if (results.length > 0) {
+          const sentences = results.slice(0, 1).map((r: any) => {
+            const chinese = r.text;
+            const english = r.translations?.[0]?.[0]?.text || '';
+            // Generate pinyin using pinyin-pro
+            const pinyinText = pinyin(chinese, { toneType: 'num' });
+            return { chinese, pinyin: pinyinText, english };
+          });
+          return res.json({ sentences });
+        }
       }
     } catch (error) {
       console.error("Tatoeba Error:", error);
+    }
+
+    // Fallback to Gemini if Tatoeba fails or returns no results
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Failed to fetch examples (Tatoeba failed and no AI key)" });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: {
+          parts: [{
+            text: `Generate ONE simple HSK 2 level Chinese example sentence containing the word/character "${query}".
+            Return JSON with:
+            - chinese: The sentence in Simplified Chinese.
+            - pinyin: The pinyin for the sentence (numbered tones, e.g. "ni3 hao3").
+            - english: The English translation.
+            `
+          }]
+        },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              chinese: { type: Type.STRING },
+              pinyin: { type: Type.STRING },
+              english: { type: Type.STRING }
+            },
+            required: ["chinese", "pinyin", "english"]
+          }
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        const data = JSON.parse(text);
+        res.json({ sentences: [data] });
+      } else {
+        res.status(500).json({ error: "No response from AI" });
+      }
+    } catch (error) {
+      console.error("Example Sentences Error:", error);
       res.status(500).json({ error: "Failed to fetch examples" });
     }
   });
