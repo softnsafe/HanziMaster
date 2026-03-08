@@ -10,6 +10,7 @@ import { playAudioUrl } from '../services/geminiService';
 import { parseLocalDate, getLocalDateString } from '../utils/dateUtils';
 import { pinyinify } from '../utils/pinyinUtils';
 import { InputLabel } from './InputLabel';
+import { SystemStatus } from './SystemStatus';
 
 interface TeacherDashboardProps {
   onLogout: () => void;
@@ -20,7 +21,7 @@ interface TeacherDashboardProps {
   onOpenTeacherJournal?: () => void;
 }
 
-type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary' | 'announcements';
+type TabType = 'create' | 'progress' | 'assignments' | 'calendar' | 'rewards' | 'logs' | 'dictionary' | 'announcements' | 'status';
 
 // Client-side resizing optimized for uploads
 // const resizeImage = (base64Str: string, maxWidth = 200): Promise<string> => { ... } // Removed unused function
@@ -927,6 +928,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
               { id: 'assignments', label: 'Library', icon: '📚' },
               { id: 'logs', label: 'Activity', icon: '🕒' },
               { id: 'announcements', label: 'Announcements', icon: '📢' },
+              { id: 'status', label: 'System', icon: '🖥️' },
           ].map(tab => (
               <button 
                 key={tab.id} 
@@ -947,6 +949,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
       {(lastSuccess || lastError) && (
           <div className={`p-6 rounded-2xl text-center text-lg font-bold animate-bounce-in shadow-sm border-l-8 ${lastSuccess ? 'bg-emerald-50 text-emerald-700 border-emerald-400' : 'bg-rose-50 text-rose-700 border-rose-400'}`}>
               {lastSuccess || lastError}
+          </div>
+      )}
+
+      {activeTab === 'status' && (
+          <div className="max-w-3xl mx-auto">
+              <SystemStatus />
           </div>
       )}
 

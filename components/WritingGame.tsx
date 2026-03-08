@@ -20,7 +20,7 @@ export const WritingGame: React.FC<WritingGameProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [practiceCount, setPracticeCount] = useState(0);
-  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string } | null>(null);
+  const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string; source?: string } | null>(null);
   const [exampleSentences, setExampleSentences] = useState<{chinese: string, pinyin?: string, english: string}[]>([]);
   const [hanziKey, setHanziKey] = useState(0);
 
@@ -37,7 +37,8 @@ export const WritingGame: React.FC<WritingGameProps> = ({
             radical: details.radical, 
             strokeCount: details.strokeCount,
             pinyin: details.pinyin,
-            definition: details.definition
+            definition: details.definition,
+            source: details.source
           });
         }
       });
@@ -177,6 +178,12 @@ export const WritingGame: React.FC<WritingGameProps> = ({
                       <div className="w-full max-w-xs text-center bg-white/60 backdrop-blur-sm rounded-xl py-2 px-4 border border-sky-100 animate-fade-in shadow-sm">
                           <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
                           <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
+                      </div>
+                  )}
+                  
+                  {charDetails?.source && (
+                      <div className="text-[9px] text-slate-300 font-mono mt-1">
+                          Source: {charDetails.source}
                       </div>
                   )}
               </div>

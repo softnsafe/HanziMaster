@@ -47,7 +47,7 @@ export const pinyinify = (text: string): string => {
     
     // Use regex to find pinyin tokens (word + optional tone number)
     // This preserves punctuation and spacing automatically
-    return text.replace(/([a-zA-ZüÜ:vV]+)([1-5]?)/g, (match, base, toneStr) => {
+    return text.replace(/([a-zA-ZüÜ:vV]+)([1-5]?)/g, (_match, base, toneStr) => {
         // Convert v and u: to ü for proper processing
         let normalizedBase = base.toLowerCase().replace(/v/g, 'ü').replace(/u:/g, 'ü');
         const tone = parseInt(toneStr || '5', 10);

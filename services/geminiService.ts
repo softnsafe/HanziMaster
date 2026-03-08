@@ -563,6 +563,7 @@ export const getCharacterDetails = async (character: string): Promise<{
     definition: string;
     radical: string;
     strokeCount: number;
+    source?: string;
 } | null> => {
   // 1. Try Server Proxy (Primary for Production Reliability)
   try {
@@ -609,21 +610,22 @@ export const getCharacterDetails = async (character: string): Promise<{
     if (!text) throw new Error("No response");
     
     const cleanText = cleanJson(text);
-    return JSON.parse(cleanText);
+    return { ...JSON.parse(cleanText), source: 'Gemini (Client)' };
 
   } catch (error) {
     console.error("Error generating character details:", error);
     
     // 3. Final Fallback: Dictionary (Offline/Cache)
     try {
-        const dict = await sheetService.getDictionary();
-        const pinyin = dict[character];
-        if (pinyin) {
+        const dict = await sheetService.getFullDictionary();
+        const entry = dict[character];
+        if (entry) {
             return {
-                pinyin: pinyin,
-                definition: '',
+                pinyin: entry.pinyin || '?',
+                definition: entry.definition || '',
                 radical: '?',
-                strokeCount: 0
+                strokeCount: 0,
+                source: 'Offline Dictionary'
             };
         }
     } catch (e) {}

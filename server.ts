@@ -88,7 +88,8 @@ async function startServer() {
           pinyin: data.pinyin ? data.pinyin.join(', ') : '',
           definition: data.definition || '',
           radical: data.radical || '',
-          strokeCount: strokeCount
+          strokeCount: strokeCount,
+          source: 'MakeMeHanzi'
         });
       }
     }
@@ -133,7 +134,7 @@ async function startServer() {
 
       const text = response.text;
       if (text) {
-        res.json(JSON.parse(text));
+        res.json({ ...JSON.parse(text), source: 'Gemini (Server)' });
       } else {
         res.status(500).json({ error: "No response from AI" });
       }
@@ -242,6 +243,68 @@ async function startServer() {
       }
     });
   }
+
+  // API Route: System Status Check
+  app.get("/api/system-status", async (_req, res) => {
+    const status: any = {
+      makemehanzi: {
+        status: "unknown",
+        count: 0,
+        message: ""
+      },
+      tatoeba: {
+        status: "unknown",
+        message: ""
+      },
+      gemini: {
+        status: "unknown",
+        message: ""
+      }
+    };
+
+    // 1. Check MakeMeHanzi
+    const dictSize = Object.keys(makemehanziDict).length;
+    if (dictSize > 0) {
+      status.makemehanzi.status = "operational";
+      status.makemehanzi.count = dictSize;
+      status.makemehanzi.message = `Loaded ${dictSize} characters`;
+    } else {
+      status.makemehanzi.status = "failed";
+      status.makemehanzi.message = "Dictionary empty or not loaded";
+    }
+
+    // 2. Check Gemini
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (apiKey) {
+      status.gemini.status = "configured";
+      status.gemini.message = "API Key present";
+      // Optional: We could try a dummy generation here, but might be overkill for a simple status check
+    } else {
+      status.gemini.status = "missing_configuration";
+      status.gemini.message = "GEMINI_API_KEY or API_KEY environment variable missing";
+    }
+
+    // 3. Check Tatoeba (Connectivity)
+    try {
+      const start = Date.now();
+      // Simple search for 'hao' to test connectivity
+      const response = await fetch("https://tatoeba.org/en/api_v0/search?from=cmn&to=eng&query=hao");
+      const duration = Date.now() - start;
+      
+      if (response.ok) {
+        status.tatoeba.status = "operational";
+        status.tatoeba.message = `Response received in ${duration}ms`;
+      } else {
+        status.tatoeba.status = "degraded";
+        status.tatoeba.message = `API returned status ${response.status}`;
+      }
+    } catch (e: any) {
+      status.tatoeba.status = "unreachable";
+      status.tatoeba.message = e.message || "Connection failed";
+    }
+
+    res.json(status);
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

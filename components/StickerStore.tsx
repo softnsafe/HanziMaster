@@ -259,24 +259,19 @@ export const StickerStore: React.FC<StickerStoreProps> = ({ student, onUpdateStu
   const uniqueOwnedStandard = Array.from(new Set(myStandardStickers.map(s => s.id)))
       .map(id => myStandardStickers.find(s => s.id === id));
   
-  const myCustomStickers = student.customStickers || [];
-  const myAiStickers = myCustomStickers.filter(s => !s.id.startsWith('gift-'));
-  const myGiftStickers = myCustomStickers.filter(s => s.id.startsWith('gift-'));
-
   const allCollectedStickers = useMemo(() => {
       const list: any[] = [];
-      myGiftStickers.forEach(s => list.push({ ...s, _type: 'GIFT', name: s.prompt, category: 'Gifts' }));
+      // Only include standard stickers (from StudentStickers tab / store items)
       uniqueOwnedStandard.forEach(s => {
           if (s) list.push({ ...s, _type: 'STORE', category: s.category || 'Misc' });
       });
-      myAiStickers.forEach(s => list.push({ ...s, _type: 'AI', name: s.prompt, category: 'AI Lab' }));
       
       return list.sort((a, b) => {
           const catA = a.category || 'Misc';
           const catB = b.category || 'Misc';
           return catA.localeCompare(catB) || (a.name || '').localeCompare(b.name || '');
       });
-  }, [myGiftStickers, uniqueOwnedStandard, myAiStickers]);
+  }, [uniqueOwnedStandard]);
 
   const ITEMS_PER_PAGE = 6; 
   const totalPages = Math.max(1, Math.ceil(allCollectedStickers.length / ITEMS_PER_PAGE));
