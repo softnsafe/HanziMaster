@@ -8,6 +8,7 @@ import { generateDictionaryEntry } from '../services/geminiService';
 import { STICKER_CATALOG, convertDriveLink, convertAudioDriveLink } from '../utils/stickerData';
 import { playAudioUrl } from '../services/geminiService';
 import { parseLocalDate, getLocalDateString } from '../utils/dateUtils';
+import { pinyinify } from '../utils/pinyinUtils';
 import { InputLabel } from './InputLabel';
 
 interface TeacherDashboardProps {
@@ -130,6 +131,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [dictAudio, setDictAudio] = useState('');
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [altScript, setAltScript] = useState<{simp: string, trad: string} | null>(null); // New state for script preview
+  const [exampleSentences, setExampleSentences] = useState<{chinese: string, pinyin?: string, english: string}[]>([]);
+  const [isFetchingExamples, setIsFetchingExamples] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Rewards Tab State
@@ -413,6 +416,28 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           setLastError("Error: " + e.message);
       }
       setIsSubmitting(false);
+  };
+
+  const handleFetchExamples = async () => {
+      if (!dictChar) return;
+      setIsFetchingExamples(true);
+      try {
+          const res = await fetch(`/api/example-sentences?query=${encodeURIComponent(dictChar)}`);
+          if (res.ok) {
+              const data = await res.json();
+              setExampleSentences(data.sentences || []);
+              if (data.sentences?.length === 0) {
+                  setLastError("No examples found on Tatoeba.");
+                  setTimeout(() => setLastError(''), 3000);
+              }
+          } else {
+              setLastError("Failed to fetch examples.");
+              setTimeout(() => setLastError(''), 3000);
+          }
+      } catch (e: any) {
+          setLastError("Error fetching examples: " + e.message);
+      }
+      setIsFetchingExamples(false);
   };
 
   const handleAddToDictionary = async (e: React.FormEvent) => {
@@ -1072,6 +1097,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                               <Button type="button" onClick={handleAutoFill} disabled={isSubmitting || !dictChar} variant="secondary" title="Auto-Fill Pinyin, Definition & Audio" className="whitespace-nowrap px-4">
                                   ✨ Auto-Fill
                               </Button>
+                              <Button type="button" onClick={handleFetchExamples} disabled={isFetchingExamples || !dictChar} variant="outline" title="Get Example Sentences" className="whitespace-nowrap px-4">
+                                  {isFetchingExamples ? '...' : '📚 Examples'}
+                              </Button>
                           </div>
                           {altScript && (
                               <div className="text-xs text-slate-400 font-bold mt-2 bg-slate-50 p-3 rounded-lg border border-slate-100 flex flex-col gap-1 animate-fade-in">
@@ -1082,6 +1110,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       </div>
                       <div><InputLabel label="Pinyin (Optional)" /><input value={dictPinyin} onChange={e => setDictPinyin(e.target.value)} placeholder="e.g. ni3 hao3" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
                       <div><InputLabel label="Definition (Optional)" /><input value={dictDef} onChange={e => setDictDef(e.target.value)} placeholder="e.g. Hello" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                      
+                      {exampleSentences.length > 0 && (
+                          <div className="bg-sky-50 p-4 rounded-xl border border-sky-100 animate-fade-in">
+                              <InputLabel label="Example Sentence (HSK 2)" />
+                              <ul className="space-y-3 mt-2">
+                                  {exampleSentences.map((ex, i) => (
+                                      <li key={i} className="text-sm">
+                                          <div className="font-bold text-slate-800">{ex.chinese}</div>
+                                          {ex.pinyin && <div className="text-slate-500 text-xs font-mono">{pinyinify(ex.pinyin)}</div>}
+                                          <div className="text-slate-500 italic">{ex.english}</div>
+                                      </li>
+                                  ))}
+                              </ul>
+                          </div>
+                      )}
+
                       <div>
                           <InputLabel label="Audio (Upload or Link)" />
                           <div className="flex flex-col gap-2">

@@ -3,8 +3,38 @@ import https from "https";
 import path from "path";
 import fs from "fs";
 import { GoogleGenAI, Type } from "@google/genai";
+import { pinyin } from "pinyin-pro";
+
+let makemehanziDict: Record<string, any> = {};
+
+async function loadMakeMeHanzi() {
+  try {
+    console.log("Loading MakeMeHanzi dictionary...");
+    const res = await fetch("https://raw.githubusercontent.com/skishore/makemeahanzi/master/dictionary.txt");
+    if (res.ok) {
+      const text = await res.text();
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.character) {
+            makemehanziDict[data.character] = data;
+          }
+        } catch (e) {}
+      }
+      console.log(`Loaded ${Object.keys(makemehanziDict).length} characters from MakeMeHanzi.`);
+    } else {
+      console.error("Failed to load MakeMeHanzi:", res.status);
+    }
+  } catch (e) {
+    console.error("Error loading MakeMeHanzi:", e);
+  }
+}
 
 async function startServer() {
+  await loadMakeMeHanzi();
+  
   const app = express();
   const PORT = 3000;
 
@@ -42,10 +72,31 @@ async function startServer() {
   // API Route: Character Details
   app.get("/api/character-details", async (req, res) => {
     const character = req.query.character as string;
-    const apiKey = process.env.GEMINI_API_KEY;
     
-    if (!character || !apiKey) {
-      return res.status(400).json({ error: "Missing character or AI not configured" });
+    if (!character) {
+      return res.status(400).json({ error: "Missing character" });
+    }
+
+    // 1. Try MakeMeHanzi
+    if (makemehanziDict[character]) {
+      const data = makemehanziDict[character];
+      const strokeCount = data.strokes ? data.strokes.length : 0;
+      
+      // Only use local data if we have valid stroke count
+      if (strokeCount > 0) {
+        return res.json({
+          pinyin: data.pinyin ? data.pinyin.join(', ') : '',
+          definition: data.definition || '',
+          radical: data.radical || '',
+          strokeCount: strokeCount
+        });
+      }
+    }
+
+    // 2. Fallback to Gemini
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ error: "AI not configured" });
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -88,6 +139,35 @@ async function startServer() {
     } catch (error) {
       console.error("Character Details Error:", error);
       res.status(500).json({ error: "Failed to fetch details" });
+    }
+  });
+
+  // API Route: Example Sentences (Tatoeba + pinyin-pro)
+  app.get("/api/example-sentences", async (req, res) => {
+    const query = req.query.query as string;
+    if (!query) return res.status(400).json({ error: "Missing query" });
+
+    try {
+      const url = `https://tatoeba.org/en/api_v0/search?from=cmn&to=eng&query=${encodeURIComponent(query)}`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        const results = data.results || [];
+        // Take only the first sentence as requested
+        const sentences = results.slice(0, 1).map((r: any) => {
+          const chinese = r.text;
+          const english = r.translations?.[0]?.[0]?.text || '';
+          // Generate pinyin using pinyin-pro
+          const pinyinText = pinyin(chinese, { toneType: 'num' });
+          return { chinese, pinyin: pinyinText, english };
+        });
+        res.json({ sentences });
+      } else {
+        res.status(500).json({ error: "Failed to fetch from Tatoeba" });
+      }
+    } catch (error) {
+      console.error("Tatoeba Error:", error);
+      res.status(500).json({ error: "Failed to fetch examples" });
     }
   });
 

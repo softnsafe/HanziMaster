@@ -45,20 +45,14 @@ export const toneToNumber = (text: string): string => {
 export const pinyinify = (text: string): string => {
     if (!text) return "";
     
-    // Preprocess: Insert space between number and following letter to handle "gei3ni3" -> "gei3 ni3"
-    const spacedText = text.replace(/([1-5])([a-zA-ZüÜ:vV])/g, '$1 $2');
-    
-    // Split by spaces to handle phrases like "ni3 hao3"
-    return spacedText.split(/\s+/).map(word => {
-        // Extract tone number (1-5)
-        const match = word.match(/^([a-zA-ZüÜ:vV]+)([1-5]?)$/);
-        if (!match) return word;
-
+    // Use regex to find pinyin tokens (word + optional tone number)
+    // This preserves punctuation and spacing automatically
+    return text.replace(/([a-zA-ZüÜ:vV]+)([1-5]?)/g, (match, base, toneStr) => {
         // Convert v and u: to ü for proper processing
-        let base = match[1].toLowerCase().replace(/v/g, 'ü').replace(/u:/g, 'ü');
-        const tone = parseInt(match[2] || '5', 10);
+        let normalizedBase = base.toLowerCase().replace(/v/g, 'ü').replace(/u:/g, 'ü');
+        const tone = parseInt(toneStr || '5', 10);
 
-        if (tone === 5) return base; // Neutral tone (usually no mark)
+        if (tone === 5) return normalizedBase; // Neutral tone (usually no mark)
 
         // Find vowel to mark
         // Priority: a, e, o. If none, then last vowel. 
@@ -66,26 +60,26 @@ export const pinyinify = (text: string): string => {
         
         let vowelIndex = -1;
         
-        if (base.includes('a')) vowelIndex = base.indexOf('a');
-        else if (base.includes('e')) vowelIndex = base.indexOf('e');
-        else if (base.includes('ou')) vowelIndex = base.indexOf('o'); // special case for 'ou'
+        if (normalizedBase.includes('a')) vowelIndex = normalizedBase.indexOf('a');
+        else if (normalizedBase.includes('e')) vowelIndex = normalizedBase.indexOf('e');
+        else if (normalizedBase.includes('ou')) vowelIndex = normalizedBase.indexOf('o'); // special case for 'ou'
         else {
             // Find last vowel
-            for (let i = base.length - 1; i >= 0; i--) {
-                if ('aeiouvü'.includes(base[i])) {
+            for (let i = normalizedBase.length - 1; i >= 0; i--) {
+                if ('aeiouvü'.includes(normalizedBase[i])) {
                     vowelIndex = i;
                     break;
                 }
             }
         }
 
-        if (vowelIndex === -1) return base;
+        if (vowelIndex === -1) return normalizedBase;
 
-        const vowel = base[vowelIndex];
+        const vowel = normalizedBase[vowelIndex];
         const replacement = TONE_MARKS[vowel]?.[tone - 1] || vowel;
 
-        return base.substring(0, vowelIndex) + replacement + base.substring(vowelIndex + 1);
-    }).join(' ');
+        return normalizedBase.substring(0, vowelIndex) + replacement + normalizedBase.substring(vowelIndex + 1);
+    });
 };
 
 export const comparePinyin = (input: string, target: string): boolean => {

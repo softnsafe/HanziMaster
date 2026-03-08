@@ -21,6 +21,7 @@ export const WritingGame: React.FC<WritingGameProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [practiceCount, setPracticeCount] = useState(0);
   const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string } | null>(null);
+  const [exampleSentences, setExampleSentences] = useState<{chinese: string, pinyin?: string, english: string}[]>([]);
   const [hanziKey, setHanziKey] = useState(0);
 
   const currentCharacter = initialCharacters[currentIndex];
@@ -29,6 +30,7 @@ export const WritingGame: React.FC<WritingGameProps> = ({
   useEffect(() => {
     if (currentCharacter) {
       setCharDetails(null);
+      setExampleSentences([]);
       getCharacterDetails(currentCharacter).then(details => {
         if (details) {
           setCharDetails({ 
@@ -39,6 +41,13 @@ export const WritingGame: React.FC<WritingGameProps> = ({
           });
         }
       });
+      fetch(`/api/example-sentences?query=${encodeURIComponent(currentCharacter)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.sentences) {
+                setExampleSentences(data.sentences);
+            }
+        }).catch(e => console.error(e));
     }
   }, [currentCharacter]);
 
@@ -186,6 +195,21 @@ export const WritingGame: React.FC<WritingGameProps> = ({
                     });
                 }}
               />
+              
+              {exampleSentences.length > 0 && (
+                  <div className="mt-6 w-full max-w-sm bg-sky-50/50 p-4 rounded-2xl border border-sky-100 animate-fade-in text-left">
+                      <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-2">Example</span>
+                      <ul className="space-y-3">
+                          {exampleSentences.slice(0, 1).map((ex, i) => (
+                              <li key={i} className="text-sm">
+                                  <div className="font-bold text-slate-700">{ex.chinese}</div>
+                                  {ex.pinyin && <div className="text-slate-500 text-xs font-mono">{pinyinify(ex.pinyin)}</div>}
+                                  <div className="text-slate-500 italic">{ex.english}</div>
+                              </li>
+                          ))}
+                      </ul>
+                  </div>
+              )}
             </div>
           </div>
       </div>

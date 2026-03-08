@@ -36,6 +36,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
 
   // Character Details state
   const [charDetails, setCharDetails] = useState<{ radical: string; strokeCount: number; pinyin?: string; definition?: string } | null>(null);
+  const [exampleSentences, setExampleSentences] = useState<{chinese: string, pinyin?: string, english: string}[]>([]);
 
   // Sentence Metadata state
   const [sentencePinyin, setSentencePinyin] = useState<string[]>([]);
@@ -149,6 +150,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
   // Fetch character details when targetWord changes
   useEffect(() => {
     if (targetWord) {
+      setExampleSentences([]);
       getCharacterDetails(targetWord).then(details => {
         if (details) {
           setCharDetails({ 
@@ -159,6 +161,13 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
           });
         }
       });
+      fetch(`/api/example-sentences?query=${encodeURIComponent(targetWord)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.sentences) {
+                setExampleSentences(data.sentences);
+            }
+        }).catch(e => console.error(e));
     }
   }, [targetWord]);
 
@@ -368,6 +377,22 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 initialMode="quiz" 
                 onComplete={handleHanziComplete} 
               />
+              
+              {exampleSentences.length > 0 && (
+                  <div className="mt-6 w-full max-w-sm bg-sky-50/50 p-4 rounded-2xl border border-sky-100 animate-fade-in text-left">
+                      <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-2">Example</span>
+                      <ul className="space-y-3">
+                          {exampleSentences.slice(0, 1).map((ex, i) => (
+                              <li key={i} className="text-sm">
+                                  <div className="font-bold text-slate-700">{ex.chinese}</div>
+                                  {ex.pinyin && <div className="text-slate-500 text-xs font-mono">{pinyinify(ex.pinyin)}</div>}
+                                  <div className="text-slate-500 italic">{ex.english}</div>
+                              </li>
+                          ))}
+                      </ul>
+                  </div>
+              )}
+
               <div className="mt-6 md:mt-8 flex gap-2">
                 {[0, 1, 2].map(i => (
                   <div key={i} className={`w-3 h-3 md:w-4 md:h-4 rounded-full ${i < practiceCount ? 'bg-emerald-400' : 'bg-slate-200'}`} />
