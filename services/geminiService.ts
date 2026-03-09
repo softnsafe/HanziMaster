@@ -513,6 +513,8 @@ export const generateDictionaryEntry = async (character: string): Promise<{
     definition: string;
     simplified: string;
     traditional: string;
+    radical?: string;
+    strokeCount?: number;
 } | null> => {
   try {
     const ai = getAI();
@@ -527,6 +529,8 @@ export const generateDictionaryEntry = async (character: string): Promise<{
           - definition: Simple English meaning (1-5 words max).
           - simplified: The Simplified Chinese version.
           - traditional: The Traditional Chinese version.
+          - radical: The Chinese radical for this character (just the character itself, e.g., '女'). If it's a multi-character word, return the radical of the first character.
+          - strokeCount: Total number of strokes as an integer. If it's a multi-character word, return the stroke count of the first character.
           `
         }]
       },
@@ -538,7 +542,9 @@ export const generateDictionaryEntry = async (character: string): Promise<{
             pinyin: { type: Type.STRING },
             definition: { type: Type.STRING },
             simplified: { type: Type.STRING },
-            traditional: { type: Type.STRING }
+            traditional: { type: Type.STRING },
+            radical: { type: Type.STRING },
+            strokeCount: { type: Type.INTEGER }
           },
           required: ["pinyin", "definition", "simplified", "traditional"]
         }
@@ -565,7 +571,24 @@ export const getCharacterDetails = async (character: string): Promise<{
     strokeCount: number;
     source?: string;
 } | null> => {
-  // 1. Try Server Proxy (Primary for Production Reliability)
+  // 1. Primary: Dictionary (MakeMeHanzi / Offline Cache)
+  try {
+      const dict = await sheetService.getFullDictionary();
+      const entry = dict[character];
+      if (entry && entry.radical && entry.strokeCount) {
+          return {
+              pinyin: entry.pinyin || '?',
+              definition: entry.definition || '',
+              radical: entry.radical || '?',
+              strokeCount: entry.strokeCount || 0,
+              source: 'Offline Dictionary'
+          };
+      }
+  } catch (e) {
+      console.warn("Failed to read from dictionary, falling back to APIs...", e);
+  }
+
+  // 2. Fallback: Server Proxy (For Production Reliability)
   try {
       const res = await fetch(`/api/character-details?character=${encodeURIComponent(character)}`);
       if (res.ok) {
@@ -575,7 +598,7 @@ export const getCharacterDetails = async (character: string): Promise<{
       console.warn("Server proxy for character details failed, trying client-side fallback...", e);
   }
 
-  // 2. Fallback: Client-side AI (For Dev/Local or if Proxy fails)
+  // 3. Final Fallback: Client-side AI (For Dev/Local or if Proxy fails)
   try {
     const ai = getAI();
     const response = await callWithRetry(() => ai.models.generateContent({
@@ -614,22 +637,6 @@ export const getCharacterDetails = async (character: string): Promise<{
 
   } catch (error) {
     console.error("Error generating character details:", error);
-    
-    // 3. Final Fallback: Dictionary (Offline/Cache)
-    try {
-        const dict = await sheetService.getFullDictionary();
-        const entry = dict[character];
-        if (entry) {
-            return {
-                pinyin: entry.pinyin || '?',
-                definition: entry.definition || '',
-                radical: '?',
-                strokeCount: 0,
-                source: 'Offline Dictionary'
-            };
-        }
-    } catch (e) {}
-
     return null;
   }
 };

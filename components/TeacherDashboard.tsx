@@ -125,11 +125,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
   const [currentAssignedTo, setCurrentAssignedTo] = useState<string[]>([]); // Preserve assignments when editing
 
   // Dictionary State
-  const [dictionary, setDictionary] = useState<Record<string, {pinyin: string, definition: string, audio: string}>>({});
+  const [dictionary, setDictionary] = useState<Record<string, {pinyin: string, definition: string, audio: string, radical?: string, strokeCount?: number}>>({});
   const [dictChar, setDictChar] = useState('');
   const [dictPinyin, setDictPinyin] = useState('');
   const [dictDef, setDictDef] = useState('');
   const [dictAudio, setDictAudio] = useState('');
+  const [dictRadical, setDictRadical] = useState('');
+  const [dictStrokeCount, setDictStrokeCount] = useState<number | ''>('');
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [altScript, setAltScript] = useState<{simp: string, trad: string} | null>(null); // New state for script preview
   const [exampleSentences, setExampleSentences] = useState<{chinese: string, pinyin?: string, english: string}[]>([]);
@@ -402,6 +404,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           if (data) {
               setDictPinyin(data.pinyin);
               setDictDef(data.definition);
+              if (data.radical) setDictRadical(data.radical);
+              if (data.strokeCount) setDictStrokeCount(data.strokeCount);
               // Auto-set audio path if not present. Use lowercased clean pinyin.
               if (!dictAudio) {
                   setDictAudio(`/audio/${data.pinyin.toLowerCase().replace(/\s+/g,'')}.mp3`);
@@ -449,11 +453,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
           character: dictChar,
           pinyin: dictPinyin,
           definition: dictDef,
-          audioUrl: dictAudio
+          audioUrl: dictAudio,
+          radical: dictRadical,
+          strokeCount: dictStrokeCount === '' ? undefined : Number(dictStrokeCount)
       });
       if (result.success) {
           setLastSuccess("Added to Dictionary!");
-          setDictChar(''); setDictPinyin(''); setDictDef(''); setDictAudio(''); setAltScript(null);
+          setDictChar(''); setDictPinyin(''); setDictDef(''); setDictAudio(''); setAltScript(null); setDictRadical(''); setDictStrokeCount('');
           if (fileInputRef.current) fileInputRef.current.value = '';
           await loadTabData();
       } else {
@@ -1118,6 +1124,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                       </div>
                       <div><InputLabel label="Pinyin (Optional)" /><input value={dictPinyin} onChange={e => setDictPinyin(e.target.value)} placeholder="e.g. ni3 hao3" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
                       <div><InputLabel label="Definition (Optional)" /><input value={dictDef} onChange={e => setDictDef(e.target.value)} placeholder="e.g. Hello" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                      <div className="grid grid-cols-2 gap-4">
+                          <div><InputLabel label="Radical (Optional)" /><input value={dictRadical} onChange={e => setDictRadical(e.target.value)} placeholder="e.g. 女" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                          <div><InputLabel label="Stroke Count (Optional)" /><input type="number" value={dictStrokeCount} onChange={e => setDictStrokeCount(e.target.value ? Number(e.target.value) : '')} placeholder="e.g. 3" className="w-full px-5 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl font-medium text-slate-700 outline-none focus:border-indigo-400" /></div>
+                      </div>
                       
                       {exampleSentences.length > 0 && (
                           <div className="bg-sky-50 p-4 rounded-xl border border-sky-100 animate-fade-in">
@@ -1169,9 +1179,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ onLogout, on
                   </div>
                   <div className="overflow-y-auto max-h-[600px] pr-2">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {Object.entries(dictionary).map(([char, data]: [string, { pinyin: string; definition: string; audio: string }]) => (
+                          {Object.entries(dictionary).map(([char, data]: [string, { pinyin: string; definition: string; audio: string; radical?: string; strokeCount?: number }]) => (
                               <div key={char} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center group hover:border-indigo-200 transition-all">
-                                  <div><div className="text-2xl font-bold text-slate-800">{char}</div><div className="text-xs font-bold text-slate-400">{data.pinyin} • {data.definition}</div></div>
+                                  <div>
+                                      <div className="text-2xl font-bold text-slate-800">{char}</div>
+                                      <div className="text-xs font-bold text-slate-400">
+                                          {data.pinyin} • {data.definition}
+                                          {(data.radical || data.strokeCount) && (
+                                              <span className="ml-2 text-slate-300">
+                                                  ({data.radical && `Radical: ${data.radical}`}{data.radical && data.strokeCount ? ', ' : ''}{data.strokeCount ? `${data.strokeCount} strokes` : ''})
+                                              </span>
+                                          )}
+                                      </div>
+                                  </div>
                                   <div className="flex items-center gap-2">
                                       {data.audio && <button onClick={() => { const url = data.audio.startsWith('/') ? data.audio : convertAudioDriveLink(data.audio); playAudioUrl(url); }} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200" title="Play Audio">🔊</button>}
                                       <button onClick={() => handleDeleteFromDictionary(char)} className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center hover:bg-rose-200 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">🗑️</button>

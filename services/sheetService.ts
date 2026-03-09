@@ -211,19 +211,19 @@ export const sheetService = {
       } catch(e) { console.error(e); return {}; }
   },
 
-  async getFullDictionary(forceRefresh = false): Promise<Record<string, {pinyin: string, definition: string, audio: string}>> {
+  async getFullDictionary(forceRefresh = false): Promise<Record<string, {pinyin: string, definition: string, audio: string, radical?: string, strokeCount?: number}>> {
       if (this.isDemoMode()) {
           return {
-              '我': { pinyin: 'wǒ', definition: 'I, me', audio: '' },
-              '你': { pinyin: 'nǐ', definition: 'you', audio: '' },
-              '好': { pinyin: 'hǎo', definition: 'good, well', audio: '' },
-              '是': { pinyin: 'shì', definition: 'is, are, am, to be', audio: '' },
-              '不': { pinyin: 'bù', definition: 'not, no', audio: '' },
-              '人': { pinyin: 'rén', definition: 'person, people', audio: '' },
-              '大': { pinyin: 'dà', definition: 'big, large', audio: '' },
-              '小': { pinyin: 'xiǎo', definition: 'small, little', audio: '' },
-              '中': { pinyin: 'zhōng', definition: 'middle, center', audio: '' },
-              '国': { pinyin: 'guó', definition: 'country, nation', audio: '' }
+              '我': { pinyin: 'wǒ', definition: 'I, me', audio: '', radical: '戈', strokeCount: 7 },
+              '你': { pinyin: 'nǐ', definition: 'you', audio: '', radical: '人', strokeCount: 7 },
+              '好': { pinyin: 'hǎo', definition: 'good, well', audio: '', radical: '女', strokeCount: 6 },
+              '是': { pinyin: 'shì', definition: 'is, are, am, to be', audio: '', radical: '日', strokeCount: 9 },
+              '不': { pinyin: 'bù', definition: 'not, no', audio: '', radical: '一', strokeCount: 4 },
+              '人': { pinyin: 'rén', definition: 'person, people', audio: '', radical: '人', strokeCount: 2 },
+              '大': { pinyin: 'dà', definition: 'big, large', audio: '', radical: '大', strokeCount: 3 },
+              '小': { pinyin: 'xiǎo', definition: 'small, little', audio: '', radical: '小', strokeCount: 3 },
+              '中': { pinyin: 'zhōng', definition: 'middle, center', audio: '', radical: '丨', strokeCount: 4 },
+              '国': { pinyin: 'guó', definition: 'country, nation', audio: '', radical: '囗', strokeCount: 8 }
           };
       }
       const cacheKey = 'full_dictionary';
@@ -435,7 +435,7 @@ export const sheetService = {
       return res;
   },
 
-  async addToDictionary(item: { character: string, pinyin?: string, definition?: string, audioUrl?: string }) {
+  async addToDictionary(item: { character: string, pinyin?: string, definition?: string, audioUrl?: string, radical?: string, strokeCount?: number }) {
       if (this.isDemoMode()) return { success: true };
       const res = await postData('addToDictionary', item);
       if (res.success) {

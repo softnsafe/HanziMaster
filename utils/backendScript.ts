@@ -150,12 +150,18 @@ function setup() {
   let dictSheet = ss.getSheetByName('Dictionary');
   if (!dictSheet) {
     dictSheet = ss.insertSheet('Dictionary');
-    dictSheet.appendRow(['Character', 'Pinyin', 'Definition', 'AudioURL']);
+    dictSheet.appendRow(['Character', 'Pinyin', 'Definition', 'AudioURL', 'Radical', 'StrokeCount']);
     dictSheet.setFrozenRows(1);
   } else {
     var headers = dictSheet.getRange(1, 1, 1, dictSheet.getLastColumn()).getValues()[0];
     if (findColumnIndex(headers, ['audiourl', 'audio']) === -1) { 
         dictSheet.getRange(1, dictSheet.getLastColumn() + 1).setValue('AudioURL'); 
+    }
+    if (findColumnIndex(headers, ['radical']) === -1) { 
+        dictSheet.getRange(1, dictSheet.getLastColumn() + 1).setValue('Radical'); 
+    }
+    if (findColumnIndex(headers, ['strokecount', 'strokes']) === -1) { 
+        dictSheet.getRange(1, dictSheet.getLastColumn() + 1).setValue('StrokeCount'); 
     }
   }
 
@@ -369,23 +375,60 @@ function toggleGoalStatus(payload) {
 
 function getDictionary() {
   const ss = getSpreadsheet();
-  let sheet = ss.getSheetByName('Dictionary');
-  if (!sheet) return response({ dictionary: {} });
-  
-  const data = sheet.getDataRange().getValues();
   const dictionary = {};
   
-  for (let i = 1; i < data.length; i++) {
-    const char = String(data[i][0]).trim();
-    const url = String(data[i][3] || '').trim();
-    if (char) {
-        dictionary[char] = {
-            pinyin: String(data[i][1]).trim(),
-            definition: String(data[i][2]).trim(),
-            audio: url
-        };
+  // 1. Read from MakeMeHanzi sheet if it exists (Fallback/Base data)
+  const mmhSheet = ss.getSheetByName('MakeMeHanzi');
+  if (mmhSheet) {
+    const data = mmhSheet.getDataRange().getValues();
+    if (data.length > 0) {
+      const headers = data[0];
+      const charIdx = findColumnIndex(headers, ['character', 'hanzi']);
+      const pinyinIdx = findColumnIndex(headers, ['pinyin']);
+      const radIdx = findColumnIndex(headers, ['radical']);
+      const strokeIdx = findColumnIndex(headers, ['strokecount', 'stroke count', 'strokes']);
+      const defIdx = findColumnIndex(headers, ['english meaning', 'definition', 'meaning']);
+      
+      if (charIdx > -1) {
+        for (let i = 1; i < data.length; i++) {
+          const char = String(data[i][charIdx]).trim();
+          if (char) {
+            dictionary[char] = {
+              pinyin: pinyinIdx > -1 ? String(data[i][pinyinIdx]).trim() : '',
+              definition: defIdx > -1 ? String(data[i][defIdx]).trim() : '',
+              audio: '', // MakeMeHanzi usually doesn't have audio
+              radical: radIdx > -1 ? String(data[i][radIdx]).trim() : '',
+              strokeCount: strokeIdx > -1 ? Number(data[i][strokeIdx]) || 0 : 0
+            };
+          }
+        }
+      }
     }
   }
+
+  // 2. Read from Dictionary sheet (Overrides MakeMeHanzi data)
+  let sheet = ss.getSheetByName('Dictionary');
+  if (sheet) {
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const radIdx = findColumnIndex(headers, ['radical']);
+    const strokeIdx = findColumnIndex(headers, ['strokecount', 'strokes']);
+    
+    for (let i = 1; i < data.length; i++) {
+      const char = String(data[i][0]).trim();
+      const url = String(data[i][3] || '').trim();
+      if (char) {
+          dictionary[char] = {
+              pinyin: String(data[i][1]).trim() || (dictionary[char] ? dictionary[char].pinyin : ''),
+              definition: String(data[i][2]).trim() || (dictionary[char] ? dictionary[char].definition : ''),
+              audio: url || (dictionary[char] ? dictionary[char].audio : ''),
+              radical: (radIdx > -1 && data[i][radIdx]) ? String(data[i][radIdx]).trim() : (dictionary[char] ? dictionary[char].radical : ''),
+              strokeCount: (strokeIdx > -1 && data[i][strokeIdx]) ? Number(data[i][strokeIdx]) : (dictionary[char] ? dictionary[char].strokeCount : 0)
+          };
+      }
+    }
+  }
+  
   const simpleDict = {};
   for(const k in dictionary) simpleDict[k] = dictionary[k].audio;
   return response({ dictionary: simpleDict, fullDictionary: dictionary });
@@ -397,16 +440,27 @@ function addToDictionary(payload) {
   if (!sheet) { setup(); sheet = ss.getSheetByName('Dictionary'); }
   
   const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const radIdx = findColumnIndex(headers, ['radical']);
+  const strokeIdx = findColumnIndex(headers, ['strokecount', 'strokes']);
+
   for(let i=1; i<data.length; i++) {
       if(String(data[i][0]) === String(payload.character)) {
-          if(payload.pinyin) sheet.getRange(i+1, 2).setValue(payload.pinyin);
-          if(payload.definition) sheet.getRange(i+1, 3).setValue(payload.definition);
-          if (payload.audioUrl) sheet.getRange(i+1, 4).setValue(payload.audioUrl);
+          if(payload.pinyin !== undefined) sheet.getRange(i+1, 2).setValue(payload.pinyin);
+          if(payload.definition !== undefined) sheet.getRange(i+1, 3).setValue(payload.definition);
+          if(payload.audioUrl !== undefined) sheet.getRange(i+1, 4).setValue(payload.audioUrl);
+          if(payload.radical !== undefined && radIdx > -1) sheet.getRange(i+1, radIdx + 1).setValue(payload.radical);
+          if(payload.strokeCount !== undefined && strokeIdx > -1) sheet.getRange(i+1, strokeIdx + 1).setValue(payload.strokeCount);
           return response({ status: 'success', action: 'updated' });
       }
   }
 
-  sheet.appendRow([payload.character, payload.pinyin || '', payload.definition || '', payload.audioUrl || '']);
+  const row = [payload.character, payload.pinyin || '', payload.definition || '', payload.audioUrl || ''];
+  while(row.length < headers.length) row.push('');
+  if (radIdx > -1) row[radIdx] = payload.radical || '';
+  if (strokeIdx > -1) row[strokeIdx] = payload.strokeCount || 0;
+
+  sheet.appendRow(row);
   return response({ status: 'success', action: 'added' });
 }
 

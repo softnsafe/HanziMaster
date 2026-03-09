@@ -343,7 +343,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
               
               {charDetails && (
                 <div className="flex gap-2 md:gap-4 mb-4 md:mb-6 bg-sky-50 px-4 md:px-6 py-3 rounded-2xl border-2 border-sky-100 flex-wrap justify-center">
-                  {charDetails.pinyin && (
+                  {charDetails.pinyin && charDetails.pinyin !== '?' && (
                       <>
                           <div className="flex flex-col items-center">
                             <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
@@ -352,14 +352,18 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                           <div className="w-px bg-sky-200 hidden md:block"></div>
                       </>
                   )}
-                  <div className="flex flex-col items-center">
-                    <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Radical</span>
-                    <span className="text-xl md:text-2xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
-                  </div>
-                  <div className="w-px bg-sky-200 hidden md:block"></div>
+                  {charDetails.radical && charDetails.radical !== '?' && (
+                      <>
+                          <div className="flex flex-col items-center">
+                            <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Radical</span>
+                            <span className="text-xl md:text-2xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
+                          </div>
+                          <div className="w-px bg-sky-200 hidden md:block"></div>
+                      </>
+                  )}
                   <div className="flex flex-col items-center">
                     <span className="text-[10px] md:text-sm font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
-                    <span className="text-xl md:text-2xl font-bold text-sky-700">{charDetails.strokeCount}</span>
+                    <span className="text-xl md:text-2xl font-bold text-sky-700">{charDetails.strokeCount > 0 ? charDetails.strokeCount : '-'}</span>
                   </div>
                 </div>
               )}
@@ -479,12 +483,12 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
             </div>
 
             <h3 className="text-2xl md:text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>
-            {sentenceTranslation && (
-                <p className="text-lg md:text-xl font-bold text-slate-500 mb-4 md:mb-6 italic">"{sentenceTranslation}"</p>
+            {sentencePinyin.length > 0 && (
+                <p className="text-xl md:text-2xl font-bold text-sky-600 mb-4 md:mb-6 tracking-wide">{sentencePinyin.join(' ')}</p>
             )}
             
             {/* Target Area */}
-            <div className="bg-white/80 backdrop-blur-sm min-h-[100px] md:min-h-[140px] w-full rounded-[2rem] md:rounded-[2.5rem] shadow-inner border-4 border-sky-200 mb-6 md:mb-8 p-4 md:p-6 flex flex-wrap gap-2 md:gap-4 items-center justify-center">
+            <div className="bg-white/80 backdrop-blur-sm min-h-[100px] md:min-h-[140px] w-full rounded-[2rem] md:rounded-[2.5rem] shadow-inner border-4 border-sky-200 mb-4 p-4 md:p-6 flex flex-wrap gap-2 md:gap-4 items-center justify-center">
               {selectedWords.length === 0 && <span className="text-sky-300 font-black text-xl md:text-2xl opacity-50">Drag or tap words here</span>}
               {selectedWords.map((item, idx) => {
                 const pinyin = sentencePinyin[item.origIdx] || '';
@@ -503,6 +507,10 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
                 );
               })}
             </div>
+
+            {sentenceTranslation && (
+                <p className="text-lg md:text-xl font-bold text-slate-500 mb-6 md:mb-8 italic">"{sentenceTranslation}"</p>
+            )}
 
             {/* Source Area */}
             <div className="flex flex-wrap gap-2 md:gap-4 justify-center min-h-[80px] md:min-h-[100px]">
