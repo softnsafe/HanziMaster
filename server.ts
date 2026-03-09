@@ -2,7 +2,6 @@ import express from "express";
 import https from "https";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI, Type } from "@google/genai";
 import { pinyin } from "pinyin-pro";
 
 let makemehanziDict: Record<string, any> = {};
@@ -95,53 +94,9 @@ async function startServer() {
     }
 
     // 2. Fallback to Gemini
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) {
-      console.error("API Key missing. Make sure GEMINI_API_KEY or API_KEY is set.");
-      return res.status(400).json({ error: "AI not configured" });
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: {
-          parts: [{
-            text: `Analyze the Chinese character: "${character}".
-            Return JSON with:
-            - pinyin: Numbered pinyin (e.g. for 好 return 'hao3'). Lowercase.
-            - definition: Simple English meaning (1-5 words max).
-            - radical: The Chinese radical for this character (just the character itself, e.g., '女').
-            - strokeCount: Total number of strokes as an integer.
-            `
-          }]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              pinyin: { type: Type.STRING },
-              definition: { type: Type.STRING },
-              radical: { type: Type.STRING },
-              strokeCount: { type: Type.INTEGER }
-            },
-            required: ["pinyin", "definition", "radical", "strokeCount"]
-          }
-        }
-      });
-
-      const text = response.text;
-      if (text) {
-        res.json({ ...JSON.parse(text), source: 'Gemini (Server)' });
-      } else {
-        res.status(500).json({ error: "No response from AI" });
-      }
-    } catch (error) {
-      console.error("Character Details Error:", error);
-      res.status(500).json({ error: "Failed to fetch details" });
-    }
+    // Removed Gemini API call from backend as per guidelines.
+    // The frontend will handle the fallback.
+    return res.status(404).json({ error: "Character not found in MakeMeHanzi dictionary" });
   });
 
   // API Route: Example Sentences (Tatoeba + pinyin-pro)
@@ -173,51 +128,9 @@ async function startServer() {
     }
 
     // Fallback to Gemini if Tatoeba fails or returns no results
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: "Failed to fetch examples (Tatoeba failed and no AI key)" });
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: {
-          parts: [{
-            text: `Generate ONE simple HSK 2 level Chinese example sentence containing the word/character "${query}".
-            Return JSON with:
-            - chinese: The sentence in Simplified Chinese.
-            - pinyin: The pinyin for the sentence (numbered tones, e.g. "ni3 hao3").
-            - english: The English translation.
-            `
-          }]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              chinese: { type: Type.STRING },
-              pinyin: { type: Type.STRING },
-              english: { type: Type.STRING }
-            },
-            required: ["chinese", "pinyin", "english"]
-          }
-        }
-      });
-
-      const text = response.text;
-      if (text) {
-        const data = JSON.parse(text);
-        res.json({ sentences: [data] });
-      } else {
-        res.status(500).json({ error: "No response from AI" });
-      }
-    } catch (error) {
-      console.error("Example Sentences Error:", error);
-      res.status(500).json({ error: "Failed to fetch examples" });
-    }
+    // Removed Gemini API call from backend as per guidelines.
+    // The frontend will handle the fallback.
+    return res.status(404).json({ error: "Failed to fetch examples from Tatoeba" });
   });
 
   // Vite middleware for development
@@ -274,14 +187,13 @@ async function startServer() {
     }
 
     // 2. Check Gemini
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) {
       status.gemini.status = "configured";
       status.gemini.message = "API Key present";
-      // Optional: We could try a dummy generation here, but might be overkill for a simple status check
     } else {
       status.gemini.status = "missing_configuration";
-      status.gemini.message = "GEMINI_API_KEY or API_KEY environment variable missing";
+      status.gemini.message = "GEMINI_API_KEY environment variable missing";
     }
 
     // 3. Check Tatoeba (Connectivity)
