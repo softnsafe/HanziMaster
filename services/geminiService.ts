@@ -13,6 +13,9 @@ const getAI = (): GoogleGenAI => {
   if (!aiInstance) {
     // Fallback to empty string to prevent crash if key is missing during render
     const apiKey = process.env.GEMINI_API_KEY || ''; 
+    if (!apiKey) {
+      console.error("CRITICAL: GEMINI_API_KEY is missing! AI features will not work. Please add it to your environment variables.");
+    }
     aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;
@@ -575,12 +578,13 @@ export const getCharacterDetails = async (character: string): Promise<{
   try {
       const dict = await sheetService.getFullDictionary();
       const entry = dict[character];
-      if (entry && entry.radical && entry.strokeCount) {
+      // Only use dictionary entry if it actually has valid radical and stroke data
+      if (entry && entry.radical && entry.radical !== '?' && entry.strokeCount && entry.strokeCount > 0) {
           return {
               pinyin: entry.pinyin || '?',
               definition: entry.definition || '',
-              radical: entry.radical || '?',
-              strokeCount: entry.strokeCount || 0,
+              radical: entry.radical,
+              strokeCount: entry.strokeCount,
               source: 'Offline Dictionary'
           };
       }
@@ -638,6 +642,63 @@ export const getCharacterDetails = async (character: string): Promise<{
   } catch (error) {
     console.error("Error generating character details:", error);
     return null;
+  }
+};
+
+export const getExampleSentences = async (character: string): Promise<{chinese: string, pinyin?: string, english: string}[]> => {
+  // 1. Try Server Proxy first
+  try {
+      const res = await fetch(`/api/example-sentences?query=${encodeURIComponent(character)}`);
+      if (res.ok) {
+          const data = await res.json();
+          if (data.sentences) return data.sentences;
+      }
+  } catch (e) {
+      console.warn("Server proxy for example sentences failed, trying client-side fallback...", e);
+  }
+
+  // 2. Fallback: Client-side AI
+  try {
+    const ai = getAI();
+    const response = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{
+          text: `Provide 1-2 simple Chinese example sentences for the character: "${character}".
+          Target level: HSK 1-2 (very simple).
+          Return JSON array of objects with:
+          - chinese: The sentence in Chinese characters.
+          - pinyin: Pinyin with tone marks.
+          - english: English translation.
+          `
+        }]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              chinese: { type: Type.STRING },
+              pinyin: { type: Type.STRING },
+              english: { type: Type.STRING }
+            },
+            required: ["chinese", "pinyin", "english"]
+          }
+        }
+      }
+    }));
+
+    const text = response.text;
+    if (!text) throw new Error("No response");
+    
+    const cleanText = cleanJson(text);
+    return JSON.parse(cleanText);
+
+  } catch (error) {
+    console.error("Error generating example sentences:", error);
+    return [];
   }
 };
 

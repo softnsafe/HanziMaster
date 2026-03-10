@@ -139,84 +139,89 @@ export const WritingGame: React.FC<WritingGameProps> = ({
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 relative z-10 overflow-y-auto w-full">
-          <div className="flex flex-col items-center text-center animate-slide-up max-w-md w-full">
+          <div className="flex flex-col items-center text-center animate-slide-up max-w-3xl w-full">
             <div className="bg-white/90 backdrop-blur-sm p-4 md:p-8 rounded-[2rem] md:rounded-[3rem] shadow-2xl border-4 border-sky-100 mb-8 w-full flex flex-col items-center justify-center relative overflow-hidden">
               <div className="absolute -top-4 -right-4 text-6xl opacity-20 rotate-12">✍️</div>
               <h3 className="text-xl md:text-2xl font-black text-sky-700 mb-4 md:mb-6">Let's write this word!</h3>
               
-              {/* Character Details & Audio */}
-              <div className="flex flex-col items-center gap-4 mb-6 w-full">
-                  {/* Stats Row */}
-                  {charDetails && (
-                    <div className="flex gap-4 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 animate-fade-in">
-                      {charDetails.pinyin && charDetails.pinyin !== '?' && (
-                          <>
-                              <div className="flex flex-col items-center">
-                                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
-                                <span className="text-xl font-bold text-sky-700">{pinyinify(charDetails.pinyin)}</span>
-                              </div>
-                              <div className="w-px bg-sky-200"></div>
-                          </>
-                      )}
-                      {charDetails.radical && charDetails.radical !== '?' && (
-                          <>
-                              <div className="flex flex-col items-center">
-                                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Radical</span>
-                                <span className="text-xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
-                              </div>
-                              <div className="w-px bg-sky-200"></div>
-                          </>
-                      )}
-                      <div className="flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
-                        <span className="text-xl font-bold text-sky-700">{charDetails.strokeCount > 0 ? charDetails.strokeCount : '-'}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {charDetails?.definition && (
-                      <div className="w-full max-w-xs text-center bg-white/60 backdrop-blur-sm rounded-xl py-2 px-4 border border-sky-100 animate-fade-in shadow-sm">
-                          <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
-                          <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
-                      </div>
-                  )}
-                  
-                  {charDetails?.source && (
-                      <div className="text-[9px] text-slate-300 font-mono mt-1">
-                          Source: {charDetails.source}
-                      </div>
-                  )}
-              </div>
-
-              <HanziPlayer 
-                key={`${currentCharacter}-${hanziKey}`}
-                character={currentCharacter} 
-                initialMode="quiz"
-                onComplete={handleWritingComplete}
-                onDataLoaded={(data) => {
-                    setCharDetails(prev => {
-                        // If we have details, update stroke count
-                        if (prev) return { ...prev, strokeCount: data.strokeCount };
-                        // If no details yet (e.g. API slow/fail), init with what we have
-                        return { radical: '?', strokeCount: data.strokeCount, pinyin: '?' };
-                    });
-                }}
-              />
-              
-              {exampleSentences.length > 0 && (
-                  <div className="mt-6 w-full max-w-sm bg-sky-50/50 p-4 rounded-2xl border border-sky-100 animate-fade-in text-left">
-                      <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-2">Example</span>
-                      <ul className="space-y-3">
-                          {exampleSentences.slice(0, 1).map((ex, i) => (
-                              <li key={i} className="text-sm">
-                                  <div className="font-bold text-slate-700">{ex.chinese}</div>
-                                  {ex.pinyin && <div className="text-slate-500 text-xs font-mono">{pinyinify(ex.pinyin)}</div>}
-                                  <div className="text-slate-500 italic">{ex.english}</div>
-                              </li>
-                          ))}
-                      </ul>
+              <div className="flex flex-col md:flex-row items-center justify-center gap-8 w-full mb-6">
+                  {/* HanziPlayer on the left */}
+                  <div className="flex-shrink-0">
+                      <HanziPlayer 
+                        key={`${currentCharacter}-${hanziKey}`}
+                        character={currentCharacter} 
+                        initialMode="quiz"
+                        onComplete={handleWritingComplete}
+                        onDataLoaded={(data) => {
+                            setCharDetails(prev => {
+                                // If we have details, update stroke count
+                                if (prev) return { ...prev, strokeCount: data.strokeCount };
+                                // If no details yet (e.g. API slow/fail), init with what we have
+                                return { radical: '?', strokeCount: data.strokeCount, pinyin: '?' };
+                            });
+                        }}
+                      />
                   </div>
-              )}
+
+                  {/* Character Details on the right */}
+                  <div className="flex flex-col items-center md:items-start gap-4 w-full md:w-auto">
+                      {/* Stats Row */}
+                      {charDetails && (
+                        <div className="flex flex-wrap justify-center md:justify-start gap-4 bg-sky-50 px-6 py-4 rounded-2xl border-2 border-sky-100 animate-fade-in">
+                          {charDetails.pinyin && charDetails.pinyin !== '?' && (
+                              <>
+                                  <div className="flex flex-col items-center md:items-start">
+                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Pinyin</span>
+                                    <span className="text-xl font-bold text-sky-700">{pinyinify(charDetails.pinyin)}</span>
+                                  </div>
+                                  <div className="hidden md:block w-px bg-sky-200"></div>
+                              </>
+                          )}
+                          {charDetails.radical && charDetails.radical !== '?' && (
+                              <>
+                                  <div className="flex flex-col items-center md:items-start">
+                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Radical</span>
+                                    <span className="text-xl font-serif-sc text-sky-700 font-bold">{charDetails.radical}</span>
+                                  </div>
+                                  <div className="hidden md:block w-px bg-sky-200"></div>
+                              </>
+                          )}
+                          <div className="flex flex-col items-center md:items-start">
+                            <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Strokes</span>
+                            <span className="text-xl font-bold text-sky-700">{charDetails.strokeCount > 0 ? charDetails.strokeCount : '-'}</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {charDetails?.definition && (
+                          <div className="w-full max-w-xs text-center md:text-left bg-white/60 backdrop-blur-sm rounded-xl py-3 px-5 border border-sky-100 animate-fade-in shadow-sm">
+                              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-1">Meaning</span>
+                              <span className="text-lg font-bold text-slate-600 leading-tight">{charDetails.definition}</span>
+                          </div>
+                      )}
+                      
+                      {exampleSentences.length > 0 && (
+                          <div className="w-full max-w-xs bg-sky-50/50 p-4 rounded-2xl border border-sky-100 animate-fade-in text-left">
+                              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block mb-2">Example</span>
+                              <ul className="space-y-3">
+                                  {exampleSentences.slice(0, 1).map((ex, i) => (
+                                      <li key={i} className="text-sm">
+                                          <div className="font-bold text-slate-700">{ex.chinese}</div>
+                                          {ex.pinyin && <div className="text-slate-500 text-xs font-mono">{pinyinify(ex.pinyin)}</div>}
+                                          <div className="text-slate-500 italic">{ex.english}</div>
+                                      </li>
+                                  ))}
+                              </ul>
+                          </div>
+                      )}
+                      
+                      {charDetails?.source && (
+                          <div className="text-[9px] text-slate-300 font-mono mt-1 text-center md:text-left">
+                              Source: {charDetails.source}
+                          </div>
+                      )}
+                  </div>
+              </div>
             </div>
           </div>
       </div>

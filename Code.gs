@@ -443,7 +443,15 @@ function getDictionary() {
   const dictionary = {};
   
   // 1. Read from MakeMeHanzi sheet if it exists (Fallback/Base data)
-  const mmhSheet = ss.getSheetByName('MakeMeHanzi');
+  let mmhSheet = null;
+  const sheets = ss.getSheets();
+  for (let s of sheets) {
+    if (s.getName().toLowerCase().replace(/\s/g, '') === 'makemehanzi') {
+      mmhSheet = s;
+      break;
+    }
+  }
+  
   if (mmhSheet) {
     const data = mmhSheet.getDataRange().getValues();
     if (data.length > 0) {
@@ -472,7 +480,14 @@ function getDictionary() {
   }
 
   // 2. Read from Dictionary sheet (Overrides MakeMeHanzi data)
-  let sheet = ss.getSheetByName('Dictionary');
+  let sheet = null;
+  for (let s of sheets) {
+    if (s.getName().toLowerCase().trim() === 'dictionary') {
+      sheet = s;
+      break;
+    }
+  }
+  
   if (sheet) {
     const data = sheet.getDataRange().getValues();
     const headers = data[0];

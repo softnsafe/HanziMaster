@@ -227,7 +227,10 @@ export const sheetService = {
           };
       }
       const cacheKey = 'full_dictionary';
-      if (!forceRefresh) { const cached = getFromCache<any>(cacheKey); if (cached) return cached; }
+      // Temporarily bypass cache to ensure fresh data is loaded
+      if (!forceRefresh) { 
+        // const cached = getFromCache<any>(cacheKey); if (cached) return cached; 
+      }
       
       const url = this.getUrl(); if (!url) return {};
       try {
