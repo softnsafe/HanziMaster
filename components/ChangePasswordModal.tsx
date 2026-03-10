@@ -46,7 +46,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ studen
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 pt-24 md:pt-32 animate-fade-in" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
         <h2 className="text-2xl font-bold text-slate-800 mb-4">Change Password 🔐</h2>
         

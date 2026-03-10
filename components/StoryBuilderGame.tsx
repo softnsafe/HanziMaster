@@ -50,6 +50,7 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
 
   // Step 3: RECORD_AUDIO state
   const [isRecording, setIsRecording] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [audioSaved, setAudioSaved] = useState(false);
 
   // Step 4: BUILD_SENTENCE state
@@ -489,14 +490,6 @@ export const StoryBuilderGame: React.FC<StoryBuilderGameProps> = ({ lesson, init
         {step === 'BUILD_SENTENCE' && (
           <div className="flex flex-col items-center text-center animate-slide-up max-w-3xl w-full">
             
-            {/* Story Image Area - Simplified */}
-            <div className="w-full max-w-xl bg-sky-50 rounded-[1.5rem] md:rounded-[2rem] border-4 border-sky-100 mb-6 md:mb-8 p-8 flex items-center justify-center shadow-inner">
-                <div className="text-center opacity-50">
-                    <span className="text-6xl block mb-2 grayscale">🧱</span>
-                    <span className="font-black text-sky-400 uppercase tracking-widest text-xl">Build The Sentence</span>
-                </div>
-            </div>
-
             <h3 className="text-2xl md:text-3xl font-black text-sky-700 mb-2 drop-shadow-sm">Build the sentence!</h3>
             {sentencePinyin.length > 0 && (
                 <p className="text-xl md:text-2xl font-bold text-sky-600 mb-4 md:mb-6 tracking-wide">{sentencePinyin.join(' ')}</p>
