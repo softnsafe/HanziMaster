@@ -703,6 +703,18 @@ export const getExampleSentences = async (character: string): Promise<{chinese: 
 };
 
 export const getSentencePinyin = async (sentence: string): Promise<string[]> => {
+  // 1. Primary: Dictionary (Google Sheet)
+  try {
+      const dict = await sheetService.getFullDictionary();
+      const entry = dict[sentence];
+      if (entry && entry.pinyin) {
+          return entry.pinyin.split(/\s+/);
+      }
+  } catch (e) {
+      console.warn("Failed to read sentence pinyin from dictionary, falling back to AI...", e);
+  }
+
+  // 2. Fallback: Client-side AI
   try {
     const ai = getAI();
     const response = await callWithRetry(() => ai.models.generateContent({
@@ -739,6 +751,21 @@ export const getSentenceMetadata = async (sentence: string): Promise<{
     pinyin: string[];
     translation: string;
 } | null> => {
+    // 1. Primary: Dictionary (Google Sheet)
+    try {
+        const dict = await sheetService.getFullDictionary();
+        const entry = dict[sentence];
+        if (entry && entry.pinyin) {
+            return {
+                pinyin: entry.pinyin.split(/\s+/),
+                translation: entry.definition || ''
+            };
+        }
+    } catch (e) {
+        console.warn("Failed to read sentence from dictionary, falling back to AI...", e);
+    }
+
+    // 2. Fallback: Client-side AI
     try {
         const ai = getAI();
         const response = await callWithRetry(() => ai.models.generateContent({
